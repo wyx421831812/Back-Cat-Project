@@ -7,6 +7,7 @@ build/
 # ===== Qt 构建产物 =====
 desktop/bin/
 desktop/build/
+desktop/output/
 *.o
 *.obj
 moc_*.cpp
