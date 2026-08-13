@@ -1,0 +1,36 @@
+# ===== 依赖 / 构建产物 =====
+node_modules/
+web/node_modules/
+dist/
+build/
+
+# ===== Qt 构建产物 =====
+desktop/bin/
+desktop/build/
+desktop/output/
+*.o
+*.obj
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+Makefile
+Makefile.Debug
+Makefile.Release
+.qmake.stash
+
+# ===== IDE / 编辑器 =====
+.vscode/
+.idea/
+*.user
+*.user.*
+*.pro.user
+*.pro.user.*
+.DS_Store
+Thumbs.db
+
+# ===== Trae 生成的分享包 / 临时文件 =====
+.trae-html-share-packages/
+
+# ===== 日志 / 缓存 =====
+*.log
+*.cache
