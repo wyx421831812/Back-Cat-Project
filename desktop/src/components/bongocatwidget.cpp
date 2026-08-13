@@ -120,12 +120,9 @@ void BongoCatWidget::paintEvent(QPaintEvent *)
 
     QRect targetRect = rect();
 
-    if (m_cover.isNull())
-        return;
-
-    // 等比缩放底图
-    QSize scaledSize = m_cover.size().scaled(targetRect.size(),
-                                               Qt::KeepAspectRatio);
+    // 计算绘制区域（等比居中，优先使用底图尺寸；底图缺失时用整个窗口）
+    QSize baseSize = m_cover.isNull() ? targetRect.size() : m_cover.size();
+    QSize scaledSize = baseSize.scaled(targetRect.size(), Qt::KeepAspectRatio);
     QRect drawRect(
         (targetRect.width() - scaledSize.width()) / 2,
         (targetRect.height() - scaledSize.height()) / 2,
@@ -133,8 +130,20 @@ void BongoCatWidget::paintEvent(QPaintEvent *)
         scaledSize.height()
     );
 
-    // 绘制角色底图
-    painter.drawPixmap(drawRect, m_cover);
+    if (!m_cover.isNull()) {
+        painter.drawPixmap(drawRect, m_cover);
+    } else {
+        // 兜底：资源图片缺失时绘制占位背景与提示文字
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(255, 236, 179));
+        painter.drawRoundedRect(drawRect, 16, 16);
+        painter.setPen(QColor(60, 60, 60));
+        QFont f = painter.font();
+        f.setPixelSize(qMax(14, scaledSize.height() / 12));
+        f.setBold(true);
+        painter.setFont(f);
+        painter.drawText(drawRect, Qt::AlignCenter, "BongoCat\n(请放入 assets/bongo/ 图片资源)");
+    }
 
     // 叠加按下的按键图片 (与底图同尺寸)
     for (int vk : m_pressedKeys) {
