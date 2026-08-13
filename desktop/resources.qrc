@@ -28,5 +28,6 @@
         <file>assets/bongo/keys/Return.png</file>
         <file>assets/bongo/keys/Shift.png</file>
         <file>assets/bongo/keys/Space.png</file>
+        <file>resources/live2d-view.html</file>
     </qresource>
 </RCC>

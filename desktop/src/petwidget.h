@@ -74,6 +74,12 @@ private:
     void setModelFairyBird();
     void setModelSpirit();
 
+    // BongoCat 模型相关
+    void rebuildBongoCatModelMenu();
+    void switchToBongoCatModel(const QString &modelId);
+    void importBongoCatModel();
+    void deleteBongoCatModel(const QString &modelId);
+
 private:
     // 拖拽 (放在前面以匹配初始化顺序)
     bool m_dragging;
@@ -93,6 +99,8 @@ private:
     QSystemTrayIcon *m_trayIcon;
     QMenu *m_trayMenu;
     QMenu *m_contextMenu;
+    QMenu *m_trayBongoModelMenu;
+    QMenu *m_contextBongoModelMenu;
 
     // 组件索引
     enum ComponentIndex {

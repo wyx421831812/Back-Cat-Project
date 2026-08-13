@@ -1,6 +1,11 @@
 QT += core gui widgets
 QT += network
 
+# Live2D支持 (需要WebEngine模块)
+# 如果使用MSVC编译器并安装了WebEngine模块，取消注释下面两行
+# QT += webenginewidgets webchannel
+# DEFINES += HAS_LIVE2D_SUPPORT
+
 greaterThan(QT_MAJOR_VERSION, 5): QT += widgets
 
 CONFIG += c++17
@@ -23,7 +28,13 @@ SOURCES += \
     src/components/clockwidget.cpp \
     src/components/quotewidget.cpp \
     src/components/todowidget.cpp \
-    src/components/bongocatwidget.cpp
+    src/components/bongocatwidget.cpp \
+    src/components/bongomodelmanager.cpp
+
+# Live2D源文件 (需要WebEngine模块)
+contains(QT, webenginewidgets) {
+    SOURCES += src/components/live2dwidget.cpp
+}
 
 # 头文件
 HEADERS += \
@@ -35,7 +46,13 @@ HEADERS += \
     src/components/clockwidget.h \
     src/components/quotewidget.h \
     src/components/todowidget.h \
-    src/components/bongocatwidget.h
+    src/components/bongocatwidget.h \
+    src/components/bongomodelmanager.h
+
+# Live2D头文件 (需要WebEngine模块)
+contains(QT, webenginewidgets) {
+    HEADERS += src/components/live2dwidget.h
+}
 
 # 资源文件
 RESOURCES += \
