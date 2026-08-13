@@ -8,18 +8,23 @@ BackPet 是一个 Windows 桌面互动组件，灵感来源于 BongoCat，结合
 
 不同于传统桌面宠物，BackPet 支持多种功能组件自由切换，用户可以自定义外观、行为和功能模块，做到功能性与情感陪伴的结合。
 
-> 仓库内同时包含一个 **Vue 3 官网/演示站**（`index.html` + `src/*.vue`），用于在浏览器中展示项目理念与交互预览，与 Qt 桌面端相互独立、不共享运行时代码。
+仓库按端拆分为两个独立子目录，互不依赖：
+
+- [`desktop/`](desktop) — Qt 6 / C++ 桌面端（真正的桌宠应用）
+- [`web/`](web) — Vue 3 / Vite 官网与交互演示站（浏览器中展示项目理念与预览）
+
+> 两端相互独立、不共享运行时代码，可分别独立构建与运行。
 
 ---
 
 ## 技术栈
 
-| 模块 | 技术 |
-|---|---|
-| **桌面端** | C++ 17 · Qt 6（兼容 Qt 5.15+）· qmake · 模块 core/gui/widgets/network |
-| **桌面端渲染** | QPainter 软件 3D（透视投影 + 深度排序 + 径向光照） |
-| **官网/演示站** | Vue 3 · Vite 5 |
-| **平台** | Windows（macOS/Linux 见路线图） |
+| 模块 | 位置 | 技术 |
+|---|---|---|
+| **桌面端** | `desktop/` | C++ 17 · Qt 6（兼容 Qt 5.15+）· qmake · 模块 core/gui/widgets/network |
+| **桌面端渲染** | `desktop/` | QPainter 软件 3D（透视投影 + 深度排序 + 径向光照） |
+| **官网/演示站** | `web/` | Vue 3 · Vite 5 |
+| **平台** | — | Windows（macOS/Linux 见路线图） |
 
 ---
 
@@ -27,32 +32,42 @@ BackPet 是一个 Windows 桌面互动组件，灵感来源于 BongoCat，结合
 
 ```
 BackPet/
-├── BackPet.pro                 # qmake 工程文件
-├── resources.qrc               # Qt 资源文件
-├── assets/
-│   └── styles.qss              # 全局样式表
-├── src/                        # ── Qt 桌面端 ──
-│   ├── main.cpp                # 程序入口
-│   ├── petwidget.h/cpp         # 主窗口 (无边框/透明/置顶/穿透/拖拽)
-│   ├── petcanvas.h/cpp         # 宠物画布 (QPainter 软件3D渲染)
-│   ├── appconfig.h/cpp         # 配置管理 (JSON 读写单例)
-│   ├── settingsdialog.h/cpp    # 设置对话框 (主题/颜色/背景/透明度)
-│   └── components/
-│       ├── componentbase.h     # 组件抽象基类
-│       ├── clockwidget.*       # 时钟组件
-│       ├── quotewidget.*       # 每日寄语组件
-│       ├── todowidget.*        # 待办清单组件
-│       └── bongocatwidget.*    # BongoCat 组件 (全局键盘钩子 + 按键图层)
-├── index.html                  # ── Vue 官网/演示站 ──
-├── package.json                # Vite + Vue 3 依赖
-└── src/                        # (与桌面端同目录, 注意区分)
-    ├── main.js                 # Vue 入口
-    ├── App.vue                 # 根组件 (home / demo 双视图)
-    ├── assets/global.css
-    └── components/*.vue        # Hero/Overview/Feature/Widget/... 展示组件
+├── desktop/                       # ── Qt 桌面端 ──
+│   ├── BackPet.pro                # qmake 工程文件
+│   ├── resources.qrc              # Qt 资源文件
+│   ├── assets/
+│   │   └── styles.qss             # 全局样式表
+│   └── src/
+│       ├── main.cpp               # 程序入口
+│       ├── petwidget.h/cpp        # 主窗口 (无边框/透明/置顶/穿透/拖拽)
+│       ├── petcanvas.h/cpp        # 宠物画布 (QPainter 软件3D渲染)
+│       ├── appconfig.h/cpp        # 配置管理 (JSON 读写单例)
+│       ├── settingsdialog.h/cpp   # 设置对话框 (主题/颜色/背景/透明度)
+│       └── components/
+│           ├── componentbase.h    # 组件抽象基类
+│           ├── clockwidget.*      # 时钟组件
+│           ├── quotewidget.*      # 每日寄语组件
+│           ├── todowidget.*       # 待办清单组件
+│           └── bongocatwidget.*   # BongoCat 组件 (全局键盘钩子 + 按键图层)
+│
+├── web/                           # ── Vue 官网/演示站 ──
+│   ├── index.html                 # Vite 入口 HTML
+│   ├── package.json               # Vite + Vue 3 依赖
+│   ├── vite.config.js             # Vite 配置
+│   ├── mood-pet-widget.html       # 单文件独立演示版 (含 echarts)
+│   ├── _shared/js/echarts.min.js  # 共享 JS 库 (mood-pet-widget.html 引用)
+│   └── src/
+│       ├── main.js                # Vue 入口
+│       ├── App.vue                # 根组件 (home / demo 双视图)
+│       ├── assets/global.css      # 全局样式
+│       └── components/*.vue       # Hero/Overview/Feature/Widget/... 展示组件
+│
+├── README.md
+├── ROADMAP.md                     # M1–M6 里程碑路线图
+└── .gitignore                     # 忽略 node_modules / Qt 构建产物等
 ```
 
-> 注意：`src/` 目录同时承载 Qt 源码与 Vue 源码。Qt 端以 `.cpp/.h` 区分，Vue 端以 `.vue/.js` 区分，互不依赖。
+> Qt 工程以 `.cpp/.h` 区分，Vue 工程以 `.vue/.js` 区分，现已分别归入 `desktop/` 与 `web/`，不再混在同一 `src/` 下。
 
 ---
 
@@ -231,15 +246,18 @@ BackPet/
 
 ## 编译方法
 
-### Qt 桌面端
+> 桌面端与网页端分别在各自子目录内独立构建。
+
+### Qt 桌面端（`desktop/`）
 
 #### 使用 Qt Creator
-1. 打开 `BackPet.pro`
+1. 打开 `desktop/BackPet.pro`
 2. 选择 Qt 6（或 Qt 5.15+）Kit
 3. 点击构建运行
 
 #### 命令行编译
 ```bash
+cd desktop
 # 使用 qmake
 qmake BackPet.pro
 make            # Linux/macOS
@@ -249,18 +267,22 @@ mingw32-make    # Windows (MinGW)
 
 #### 使用 CMake（可选）
 ```bash
+cd desktop
 mkdir build && cd build
 cmake ..
 cmake --build .
 ```
 
-### Vue 官网/演示站
+### Vue 官网/演示站（`web/`）
 ```bash
-npm install
-npm run dev       # 本地开发
-npm run build     # 生产构建
-npm run preview   # 预览构建产物
+cd web
+npm install     # 首次需安装依赖（node_modules 已加入 .gitignore，不会进入仓库）
+npm run dev     # 本地开发 (http://localhost:5173)
+npm run build   # 生产构建
+npm run preview # 预览构建产物
 ```
+
+> 单文件独立演示版可直接在浏览器打开 `web/mood-pet-widget.html`（无需构建）。
 
 ---
 
