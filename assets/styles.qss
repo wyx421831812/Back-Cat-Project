@@ -1,0 +1,127 @@
+/* === BackPet 样式表 === */
+
+/* 全局样式 */
+QWidget {
+    font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+}
+
+/* 设置对话框 */
+QDialog {
+    background: #f8fafc;
+}
+
+QLabel {
+    color: #0f172a;
+}
+
+QGroupBox {
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    margin-top: 10px;
+    padding-top: 12px;
+    font-weight: bold;
+    color: #475569;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 6px;
+}
+
+/* 按钮样式 */
+QPushButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #fbbf24, stop:1 #8b5cf6);
+    color: white;
+    border: none;
+    padding: 8px 20px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+QPushButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #f59e0b, stop:1 #7c3aed);
+}
+
+QPushButton:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #d97706, stop:1 #6d28d9);
+}
+
+QPushButton#secondaryBtn {
+    background: #f1f5f9;
+    color: #0f172a;
+}
+
+QPushButton#secondaryBtn:hover {
+    background: #e2e8f0;
+}
+
+/* 滑块 */
+QSlider::groove:horizontal {
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 3px;
+}
+
+QSlider::handle:horizontal {
+    background: #fbbf24;
+    width: 18px;
+    height: 18px;
+    margin: -6px 0;
+    border-radius: 9px;
+}
+
+QSlider::handle:horizontal:hover {
+    background: #f59e0b;
+}
+
+/* 下拉框 */
+QComboBox {
+    padding: 6px 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    background: white;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 30px;
+}
+
+/* 时钟组件 */
+QWidget#clockWidget {
+    background: rgba(255, 255, 255, 200);
+    border-radius: 15px;
+}
+
+QLabel#clockTimeLabel {
+    font-size: 28px;
+    font-weight: bold;
+    color: #fbbf24;
+}
+
+QLabel#clockDateLabel {
+    font-size: 12px;
+    color: #64748b;
+}
+
+/* 寄语组件 */
+QWidget#quoteWidget {
+    background: rgba(139, 92, 246, 180);
+    border-radius: 15px;
+}
+
+QLabel#quoteTextLabel {
+    font-size: 14px;
+    color: white;
+    font-style: italic;
+}
+
+QLabel#quoteAuthorLabel {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 200);
+}
