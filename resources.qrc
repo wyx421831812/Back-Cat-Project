@@ -1,0 +1,32 @@
+<RCC>
+    <qresource prefix="/">
+        <file>assets/styles.qss</file>
+        <file>assets/bongo/cover.png</file>
+        <file>assets/bongo/background.png</file>
+        <file>assets/bongo/keys/Alt.png</file>
+        <file>assets/bongo/keys/Control.png</file>
+        <file>assets/bongo/keys/KeyA.png</file>
+        <file>assets/bongo/keys/KeyB.png</file>
+        <file>assets/bongo/keys/KeyC.png</file>
+        <file>assets/bongo/keys/KeyD.png</file>
+        <file>assets/bongo/keys/KeyE.png</file>
+        <file>assets/bongo/keys/KeyF.png</file>
+        <file>assets/bongo/keys/KeyG.png</file>
+        <file>assets/bongo/keys/KeyQ.png</file>
+        <file>assets/bongo/keys/KeyR.png</file>
+        <file>assets/bongo/keys/KeyS.png</file>
+        <file>assets/bongo/keys/KeyT.png</file>
+        <file>assets/bongo/keys/KeyV.png</file>
+        <file>assets/bongo/keys/KeyW.png</file>
+        <file>assets/bongo/keys/KeyX.png</file>
+        <file>assets/bongo/keys/KeyZ.png</file>
+        <file>assets/bongo/keys/Num1.png</file>
+        <file>assets/bongo/keys/Num2.png</file>
+        <file>assets/bongo/keys/Num3.png</file>
+        <file>assets/bongo/keys/Num4.png</file>
+        <file>assets/bongo/keys/Num5.png</file>
+        <file>assets/bongo/keys/Return.png</file>
+        <file>assets/bongo/keys/Shift.png</file>
+        <file>assets/bongo/keys/Space.png</file>
+    </qresource>
+</RCC>
