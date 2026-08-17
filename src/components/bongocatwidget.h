@@ -3,7 +3,6 @@
 
 #include "componentbase.h"
 #include <QMap>
-#include <QSet>
 #include <QPixmap>
 
 #ifdef Q_OS_WIN
@@ -13,9 +12,12 @@
 /**
  * @brief Bongo Cat 桌宠组件
  *
- * 参考Bongo Cat,显示角色趴在键盘上的2D图片
- * 监听全局键盘输入,按下时叠加对应按键图片
- * 支持的按键: A-Z(部分), 1-5, Space, Shift, Ctrl, Alt, Return
+ * 参考原版 BongoCat 的实现思路：
+ * - 单张底图（cover.png）画猫咪身体 + 键盘
+ * - 按键贴图（keys/KeyX.png）画对应「手按下」的状态
+ * - 按键分左右手（对应原版 left-keys / right-keys 目录）
+ * - 同一只手同一时刻最多显示一个按键贴图（同手互斥）
+ *   避免多个按键叠加导致「上下多只手同时出现」的问题
  */
 class BongoCatWidget : public ComponentBase
 {
@@ -34,11 +36,26 @@ protected:
     void paintEvent(QPaintEvent *event) override;
 
 private:
+    enum class HandSide { Left = 0, Right = 1 };
+
+    struct ActiveKey {
+        int vk = 0;
+        QPixmap pixmap;
+        bool valid = false;
+    };
+
     void loadImages();
     void installHook();
     void removeHook();
+    void clearActiveKeys();
+
+    // 按键贴图（vkCode -> pixmap）
     QMap<int, QPixmap> m_keyPixmaps;
-    QSet<int> m_pressedKeys;
+    // 按键左右手归属（vkCode -> Left/Right），对应原版 left-keys / right-keys 目录分类
+    QMap<int, HandSide> m_keyHandMap;
+    // 每只手当前激活的按键（同手互斥，同一时刻一只手只显示一个按键贴图）
+    ActiveKey m_activeKey[2];
+    // 底图（猫咪趴在键盘上，不含手部或只含休息位的手）
     QPixmap m_cover;
 
 #ifdef Q_OS_WIN
