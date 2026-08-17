@@ -1,6 +1,9 @@
 #include "bongocatwidget.h"
 #include <QPainter>
 #include <QPaintEvent>
+#include <QDir>
+#include <QFileInfo>
+#include <QCoreApplication>
 
 #ifdef Q_OS_WIN
 BongoCatWidget *BongoCatWidget::s_instance = nullptr;
@@ -27,46 +30,109 @@ BongoCatWidget::~BongoCatWidget()
 #endif
 }
 
+void BongoCatWidget::scanKeyDirectory(const QString &dirPath, HandSide side,
+                                       const QMap<int, QString> &nameToVk)
+{
+    QDir dir(dirPath);
+    if (!dir.exists()) return;
+
+    // 建一个反向映射：文件名（不含扩展名） -> vkCode
+    QMap<QString, int> fileToVk;
+    for (auto it = nameToVk.begin(); it != nameToVk.end(); ++it) {
+        fileToVk[it.value()] = it.key();
+    }
+
+    // 扫描目录下所有 png 文件
+    const QStringList filters = {"*.png", "*.jpg"};
+    for (const QFileInfo &fi : dir.entryInfoList(filters, QDir::Files)) {
+        QString baseName = fi.completeBaseName();   // "KeyA" from "KeyA.png"
+        if (!fileToVk.contains(baseName)) continue;
+
+        int vk = fileToVk[baseName];
+        QPixmap pix(fi.absoluteFilePath());
+        if (pix.isNull()) continue;
+
+        m_keyPixmaps[vk] = pix;
+        m_keyHandMap[vk] = side;
+    }
+}
+
 void BongoCatWidget::loadImages()
 {
-    m_cover = QPixmap(":/assets/bongo/cover.png");
-
-    // 按键 vkCode -> 名称映射
+    // 按键 vkCode -> 名称映射（与原版 BongoCat left-keys 目录文件名一致）
     static const QMap<int, QString> keyMap = {
+        // 字母键
         {0x41, "KeyA"}, {0x42, "KeyB"}, {0x43, "KeyC"}, {0x44, "KeyD"},
-        {0x45, "KeyE"}, {0x46, "KeyF"}, {0x47, "KeyG"}, {0x51, "KeyQ"},
-        {0x52, "KeyR"}, {0x53, "KeyS"}, {0x54, "KeyT"}, {0x56, "KeyV"},
-        {0x57, "KeyW"}, {0x58, "KeyX"}, {0x5A, "KeyZ"},
-        {0x31, "Num1"}, {0x32, "Num2"}, {0x33, "Num3"},
-        {0x34, "Num4"}, {0x35, "Num5"},
-        {0x20, "Space"}, {0x0D, "Return"}, {0x10, "Shift"},
-        {0x11, "Control"}, {0x12, "Alt"},
+        {0x45, "KeyE"}, {0x46, "KeyF"}, {0x47, "KeyG"}, {0x48, "KeyH"},
+        {0x49, "KeyI"}, {0x4A, "KeyJ"}, {0x4B, "KeyK"}, {0x4C, "KeyL"},
+        {0x4D, "KeyM"}, {0x4E, "KeyN"}, {0x4F, "KeyO"}, {0x50, "KeyP"},
+        {0x51, "KeyQ"}, {0x52, "KeyR"}, {0x53, "KeyS"}, {0x54, "KeyT"},
+        {0x55, "KeyU"}, {0x56, "KeyV"}, {0x57, "KeyW"}, {0x58, "KeyX"},
+        {0x59, "KeyY"}, {0x5A, "KeyZ"},
+        // 数字键
+        {0x30, "Num0"}, {0x31, "Num1"}, {0x32, "Num2"}, {0x33, "Num3"},
+        {0x34, "Num4"}, {0x35, "Num5"}, {0x36, "Num6"}, {0x37, "Num7"},
+        {0x38, "Num8"}, {0x39, "Num9"},
+        // 符号键
+        {0xBA, "Semicolon"}, {0xBB, "Equal"}, {0xBD, "Minus"},
+        {0xDB, "BracketLeft"}, {0xDD, "BracketRight"}, {0xDC, "Backslash"},
+        {0xBE, "Period"}, {0xBF, "Slash"}, {0xC0, "Quote"}, {0xE2, "BackQuote"},
+        // 功能键
+        {0x08, "Backspace"}, {0x09, "Tab"}, {0x0D, "Return"}, {0x20, "Space"},
+        {0x1B, "Escape"}, {0x2E, "Delete"},
+        {0x10, "Shift"}, {0xA0, "ShiftLeft"}, {0xA1, "ShiftRight"},
+        {0x11, "Control"}, {0xA2, "ControlLeft"}, {0xA3, "ControlRight"},
+        {0x12, "Alt"}, {0x5B, "Meta"}, {0x14, "CapsLock"},
+        // 方向键
+        {0x25, "LeftArrow"}, {0x26, "UpArrow"}, {0x27, "RightArrow"}, {0x28, "DownArrow"}
     };
 
-    // 按键左右手分类表，参照原版 BongoCat 的 left-keys / right-keys 目录划分
-    // 左手区：键盘左半边的字母 + 修饰键 + 空格（由左手按）
-    static const QSet<int> leftHandKeys = {
-        0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,  // A-G
-        0x51, 0x52, 0x53, 0x54, 0x56, 0x57, 0x58, 0x5A,  // Q R S T V W X Z
-        0x10, 0x11, 0x12, 0x20                       // Shift Control Alt Space
-    };
-    // 右手区：数字键 + 回车
-    static const QSet<int> rightHandKeys = {
-        0x31, 0x32, 0x33, 0x34, 0x35, 0x0D           // 1-5 + Return
+    // ★ 优先从文件系统加载真实资源目录
+    // 路径优先级：可执行文件同级 desktop/resources/models/keyboard/resources/
+    //           → 工作目录 desktop/resources/models/keyboard/resources/
+    //           → qrc 资源回退
+    QStringList searchPaths = {
+        QCoreApplication::applicationDirPath() + "/desktop/resources/models/keyboard/resources",
+        QDir::currentPath() + "/desktop/resources/models/keyboard/resources",
+        QDir::currentPath() + "/resources/models/keyboard/resources",
+        ":/assets/bongo"  // qrc 回退路径
     };
 
-    for (auto it = keyMap.begin(); it != keyMap.end(); ++it) {
-        QPixmap pix(QString(":/assets/bongo/keys/%1.png").arg(it.value()));
-        if (!pix.isNull()) {
-            m_keyPixmaps[it.key()] = pix;
+    for (const QString &resPath : searchPaths) {
+        QString coverPath = resPath + "/cover.png";
+        if (m_cover.isNull() && QFileInfo::exists(coverPath)) {
+            m_cover = QPixmap(coverPath);
+        }
 
-            // 建立按键 -> 左右手映射
-            if (leftHandKeys.contains(it.key())) {
-                m_keyHandMap[it.key()] = HandSide::Left;
-            } else if (rightHandKeys.contains(it.key())) {
-                m_keyHandMap[it.key()] = HandSide::Right;
+        // 扫描 left-keys 子目录
+        QString leftKeysDir = resPath + "/left-keys";
+        if (QDir(leftKeysDir).exists()) {
+            scanKeyDirectory(leftKeysDir, HandSide::Left, keyMap);
+        }
+
+        // 扫描 right-keys 子目录
+        QString rightKeysDir = resPath + "/right-keys";
+        if (QDir(rightKeysDir).exists()) {
+            scanKeyDirectory(rightKeysDir, HandSide::Right, keyMap);
+        }
+
+        // qrc 回退：扁平 keys/ 目录，默认归左手
+        if (resPath == ":/assets/bongo") {
+            for (auto it = keyMap.begin(); it != keyMap.end(); ++it) {
+                if (m_keyPixmaps.contains(it.key())) continue;
+                QPixmap pix(QString(":/assets/bongo/keys/%1.png").arg(it.value()));
+                if (!pix.isNull()) {
+                    m_keyPixmaps[it.key()] = pix;
+                    // qrc 回退时没有目录分类，默认归左手
+                    if (!m_keyHandMap.contains(it.key())) {
+                        m_keyHandMap[it.key()] = HandSide::Left;
+                    }
+                }
             }
         }
+
+        // 如果已经加载到足够资源，提前退出
+        if (!m_cover.isNull() && m_keyPixmaps.size() > 0) break;
     }
 }
 
@@ -117,13 +183,12 @@ LRESULT CALLBACK BongoCatWidget::hookProc(int nCode, WPARAM wParam, LPARAM lPara
         // 只处理有贴图的按键
         if (s_instance->m_keyPixmaps.contains(vk)) {
             if (isDown) {
-                // 查按键属于哪只手，默认归左手（未分类的按键）
+                // 查按键属于哪只手，未分类的按键默认归左手
                 HandSide side = s_instance->m_keyHandMap.value(vk, HandSide::Left);
 
                 // ★ 关键修复：同一只手同一时刻只保留一个按键贴图
                 // 对应原版 BongoCat useModel.ts handlePress 的互斥逻辑
-                // （path.split(sep).last(-2) === 'left-keys'/'right-keys'）
-                // 如果同手之前按的是别的键，新键按下后直接覆盖旧键
+                // 同手新键按下后直接覆盖旧键
                 s_instance->m_activeKey[static_cast<int>(side)] = {
                     vk,
                     s_instance->m_keyPixmaps.value(vk),
