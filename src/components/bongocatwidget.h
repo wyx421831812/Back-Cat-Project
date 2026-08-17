@@ -4,6 +4,7 @@
 #include "componentbase.h"
 #include <QMap>
 #include <QPixmap>
+#include <QString>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -14,10 +15,14 @@
  *
  * 参考原版 BongoCat 的实现思路：
  * - 单张底图（cover.png）画猫咪身体 + 键盘
- * - 按键贴图（keys/KeyX.png）画对应「手按下」的状态
- * - 按键分左右手（对应原版 left-keys / right-keys 目录）
+ * - 按键贴图分目录存放：left-keys/ 右手区、right-keys/ 右手区
+ * - 按下某个键时，叠加对应按键贴图（手按下的状态）
  * - 同一只手同一时刻最多显示一个按键贴图（同手互斥）
  *   避免多个按键叠加导致「上下多只手同时出现」的问题
+ *
+ * 资源加载方式：
+ * - 优先从文件系统加载 desktop/resources/models/keyboard/resources/ 真实目录
+ * - 如果文件系统加载失败（例如部署时路径不存在），回退到 Qt 资源系统 qrc
  */
 class BongoCatWidget : public ComponentBase
 {
@@ -44,7 +49,12 @@ private:
         bool valid = false;
     };
 
+    // 加载底图 + 按键贴图，建立 vkCode -> pixmap / vkCode -> 左右手 映射
     void loadImages();
+    // 扫描某个按键子目录（left-keys 或 right-keys），填充 m_keyPixmaps 和 m_keyHandMap
+    void scanKeyDirectory(const QString &dirPath, HandSide side,
+                          const QMap<int, QString> &nameToVk);
+    // 安装 / 卸载全局键盘 Hook
     void installHook();
     void removeHook();
     void clearActiveKeys();
