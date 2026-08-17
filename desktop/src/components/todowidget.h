@@ -5,6 +5,7 @@
 #include <QListWidget>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QComboBox>
 #include <QVBoxLayout>
 #include <QFile>
 #include <QJsonArray>
@@ -22,6 +23,12 @@ class TodoWidget : public ComponentBase
 {
     Q_OBJECT
 
+    enum FilterMode {
+        FilterAll = 0,
+        FilterActive = 1,
+        FilterDone = 2
+    };
+
 public:
     explicit TodoWidget(QWidget *parent = nullptr);
 
@@ -35,14 +42,21 @@ private:
     QListWidget *m_listWidget;
     QLineEdit *m_inputEdit;
     QPushButton *m_addBtn;
+    QComboBox *m_filterCombo;
+    FilterMode m_filterMode;
+    QJsonArray m_allTodos;
 
     void loadTodos();
     void saveTodos();
+    void applyFilter();
 
 private slots:
     void onAdd();
     void onItemChanged(QListWidgetItem *item);
-    void onItemDoubleClicked(QListWidgetItem *item);
+    void onItemContextMenu(const QPoint &pos);
+    void onFilterChanged(int index);
+    void onEditItem();
+    void onDeleteItem();
 };
 
 #endif // TODOWIDGET_H

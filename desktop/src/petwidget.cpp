@@ -4,12 +4,19 @@
 #include "components/quotewidget.h"
 #include "components/todowidget.h"
 #include "components/bongocatwidget.h"
+#include "components/bongomodelmanager.h"
 
 #include <QApplication>
 #include <QScreen>
 #include <QGuiApplication>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QFileDialog>
+#include <QInputDialog>
+#include <QMessageBox>
+#include <QMenu>
+#include <QFile>
+#include <QFileInfo>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -28,10 +35,27 @@ PetWidget::PetWidget(QWidget *parent)
     , m_trayIcon(nullptr)
     , m_trayMenu(nullptr)
     , m_contextMenu(nullptr)
+    , m_trayBongoModelMenu(nullptr)
+    , m_contextBongoModelMenu(nullptr)
 {
     setupUI();
     setupTrayIcon();
     setupContextMenu();
+
+    // 初始化 BongoCat 模型 (必须在两个菜单都创建完成后)
+    BongoModelManager::instance().loadModels();
+    rebuildBongoCatModelMenu();
+
+    // 监听模型变化
+    connect(&BongoModelManager::instance(), &BongoModelManager::modelChanged,
+            this, [this](const QString &) {
+        rebuildBongoCatModelMenu();
+    });
+    connect(&BongoModelManager::instance(), &BongoModelManager::modelsLoaded,
+            this, [this]() {
+        rebuildBongoCatModelMenu();
+    });
+
     applyConfig();
 }
 
@@ -147,6 +171,9 @@ void PetWidget::setupTrayIcon()
     modelMenu->addAction(QStringLiteral("🦢 仙鸟"), this, &PetWidget::setModelFairyBird);
     modelMenu->addAction(QStringLiteral("👻 幻灵"), this, &PetWidget::setModelSpirit);
 
+    // BongoCat 模型子菜单
+    m_trayBongoModelMenu = m_trayMenu->addMenu(QStringLiteral("🐱 BongoCat模型"));
+
     m_trayMenu->addSeparator();
     m_trayMenu->addAction(QStringLiteral("⚙️ 设置"), this, &PetWidget::onSettings);
     m_trayMenu->addAction(QStringLiteral("❌ 退出"), this, &PetWidget::onQuit);
@@ -183,6 +210,9 @@ void PetWidget::setupContextMenu()
     modelMenu->addAction(QStringLiteral("🐰 兔子"), this, &PetWidget::setModelBunny);
     modelMenu->addAction(QStringLiteral("🦢 仙鸟"), this, &PetWidget::setModelFairyBird);
     modelMenu->addAction(QStringLiteral("👻 幻灵"), this, &PetWidget::setModelSpirit);
+
+    // BongoCat 模型子菜单
+    m_contextBongoModelMenu = m_contextMenu->addMenu(QStringLiteral("🐱 BongoCat模型"));
 
     m_contextMenu->addSeparator();
     m_contextMenu->addAction(QStringLiteral("⚙️ 设置"), this, &PetWidget::onSettings);
@@ -270,6 +300,17 @@ void PetWidget::updateOpacity()
 
 void PetWidget::switchToPet()
 {
+    // 离开BongoCat时恢复默认尺寸
+    if (m_stack->width() > 320) {
+        QSize cfgSize = AppConfig::instance().windowSize();
+        if (cfgSize.width() > 0 && cfgSize.height() > 0 && cfgSize.width() <= 320) {
+            setFixedSize(cfgSize);
+            m_stack->setGeometry(0, 0, cfgSize.width(), cfgSize.height());
+        } else {
+            setFixedSize(200, 250);
+            m_stack->setGeometry(0, 0, 200, 250);
+        }
+    }
     m_stack->setCurrentIndex(PetComponent);
     AppConfig::instance().setCurrentComponentIndex(PetComponent);
     AppConfig::instance().save();
@@ -277,6 +318,16 @@ void PetWidget::switchToPet()
 
 void PetWidget::switchToClock()
 {
+    if (m_stack->width() > 320) {
+        QSize cfgSize = AppConfig::instance().windowSize();
+        if (cfgSize.width() > 0 && cfgSize.height() > 0 && cfgSize.width() <= 320) {
+            setFixedSize(cfgSize);
+            m_stack->setGeometry(0, 0, cfgSize.width(), cfgSize.height());
+        } else {
+            setFixedSize(200, 250);
+            m_stack->setGeometry(0, 0, 200, 250);
+        }
+    }
     m_stack->setCurrentIndex(ClockComponent);
     AppConfig::instance().setCurrentComponentIndex(ClockComponent);
     AppConfig::instance().save();
@@ -284,6 +335,16 @@ void PetWidget::switchToClock()
 
 void PetWidget::switchToQuote()
 {
+    if (m_stack->width() > 320) {
+        QSize cfgSize = AppConfig::instance().windowSize();
+        if (cfgSize.width() > 0 && cfgSize.height() > 0 && cfgSize.width() <= 320) {
+            setFixedSize(cfgSize);
+            m_stack->setGeometry(0, 0, cfgSize.width(), cfgSize.height());
+        } else {
+            setFixedSize(200, 250);
+            m_stack->setGeometry(0, 0, 200, 250);
+        }
+    }
     m_stack->setCurrentIndex(QuoteComponent);
     AppConfig::instance().setCurrentComponentIndex(QuoteComponent);
     AppConfig::instance().save();
@@ -291,6 +352,16 @@ void PetWidget::switchToQuote()
 
 void PetWidget::switchToTodo()
 {
+    if (m_stack->width() > 320) {
+        QSize cfgSize = AppConfig::instance().windowSize();
+        if (cfgSize.width() > 0 && cfgSize.height() > 0 && cfgSize.width() <= 320) {
+            setFixedSize(cfgSize);
+            m_stack->setGeometry(0, 0, cfgSize.width(), cfgSize.height());
+        } else {
+            setFixedSize(200, 250);
+            m_stack->setGeometry(0, 0, 200, 250);
+        }
+    }
     m_stack->setCurrentIndex(TodoComponent);
     AppConfig::instance().setCurrentComponentIndex(TodoComponent);
     AppConfig::instance().save();
@@ -299,6 +370,12 @@ void PetWidget::switchToTodo()
 void PetWidget::switchToBongoCat()
 {
     m_stack->setCurrentIndex(BongoCatComponent);
+
+    // BongoCat窗口尺寸匹配background.png的宽高比 (1224x708 ≈ 1.728:1)
+    setFixedSize(420, 243);
+    m_stack->setGeometry(0, 0, 420, 243);
+    m_bongoCatWidget->setGeometry(0, 0, 420, 243);
+
     AppConfig::instance().setCurrentComponentIndex(BongoCatComponent);
     AppConfig::instance().save();
 }
@@ -450,5 +527,157 @@ void PetWidget::onTrayActivated(QSystemTrayIcon::ActivationReason reason)
         } else {
             switchToPet();
         }
+    }
+}
+
+// === BongoCat 模型管理 ===
+
+void PetWidget::rebuildBongoCatModelMenu()
+{
+    if (!m_trayBongoModelMenu || !m_contextBongoModelMenu) {
+        return;
+    }
+
+    // 清空现有菜单项
+    m_trayBongoModelMenu->clear();
+    m_contextBongoModelMenu->clear();
+
+    BongoModelManager &mgr = BongoModelManager::instance();
+    QString currentId = mgr.currentModelId();
+
+    // 添加所有模型
+    QList<BongoModel> models = mgr.models();
+    for (const BongoModel &model : models) {
+        QString label = model.name;
+        if (model.id == currentId) {
+            label = QStringLiteral("✓ %1").arg(model.name);
+        }
+
+        QAction *trayAction = m_trayBongoModelMenu->addAction(label);
+        QAction *ctxAction = m_contextBongoModelMenu->addAction(label);
+
+        QString modelId = model.id;
+        connect(trayAction, &QAction::triggered, this, [this, modelId]() {
+            switchToBongoCatModel(modelId);
+        });
+        connect(ctxAction, &QAction::triggered, this, [this, modelId]() {
+            switchToBongoCatModel(modelId);
+        });
+
+        // 非预设模型(用户自定义)添加删除选项
+        if (!model.isPreset) {
+            QString deleteLabel = QStringLiteral("    🗑 删除 %1").arg(model.name);
+            QAction *trayDel = m_trayBongoModelMenu->addAction(deleteLabel);
+            QAction *ctxDel = m_contextBongoModelMenu->addAction(deleteLabel);
+            connect(trayDel, &QAction::triggered, this, [this, modelId]() {
+                deleteBongoCatModel(modelId);
+            });
+            connect(ctxDel, &QAction::triggered, this, [this, modelId]() {
+                deleteBongoCatModel(modelId);
+            });
+        }
+    }
+
+    m_trayBongoModelMenu->addSeparator();
+    m_contextBongoModelMenu->addSeparator();
+
+    // 导入模型
+    QAction *trayImport = m_trayBongoModelMenu->addAction(
+        QStringLiteral("📁 导入自定义模型..."));
+    QAction *ctxImport = m_contextBongoModelMenu->addAction(
+        QStringLiteral("📁 导入自定义模型..."));
+    connect(trayImport, &QAction::triggered, this, &PetWidget::importBongoCatModel);
+    connect(ctxImport, &QAction::triggered, this, &PetWidget::importBongoCatModel);
+}
+
+void PetWidget::switchToBongoCatModel(const QString &modelId)
+{
+    BongoModelManager::instance().setCurrentModel(modelId);
+    // 切换到BongoCat组件
+    switchToBongoCat();
+}
+
+void PetWidget::importBongoCatModel()
+{
+    QString dirPath = QFileDialog::getExistingDirectory(
+        this,
+        QStringLiteral("选择BongoCat模型文件夹"),
+        QString(),
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks
+    );
+
+    if (dirPath.isEmpty()) {
+        return;
+    }
+
+    // 检查是否有cover.png (支持两种格式)
+    bool hasCover = QFile::exists(dirPath + "/cover.png") ||
+                    QFile::exists(dirPath + "/resources/cover.png");
+    if (!hasCover) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("导入失败"),
+            QStringLiteral("所选文件夹中未找到 cover.png 文件。\n\n"
+                           "支持的模型格式:\n\n"
+                           "1. BongoCat标准格式 (推荐):\n"
+                           "   文件夹/resources/cover.png\n"
+                           "   文件夹/resources/background.png\n"
+                           "   文件夹/resources/left-keys/*.png\n\n"
+                           "2. 简化格式:\n"
+                           "   文件夹/cover.png\n"
+                           "   文件夹/background.png (可选)\n"
+                           "   文件夹/keys/*.png (可选)")
+        );
+        return;
+    }
+
+    // 让用户输入模型名称
+    QString defaultName = QFileInfo(dirPath).fileName();
+    bool ok = false;
+    QString modelName = QInputDialog::getText(
+        this,
+        QStringLiteral("模型名称"),
+        QStringLiteral("请输入模型名称:"),
+        QLineEdit::Normal,
+        defaultName,
+        &ok
+    );
+
+    if (!ok || modelName.trimmed().isEmpty()) {
+        return;
+    }
+
+    if (BongoModelManager::instance().importModel(dirPath, modelName.trimmed())) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("导入成功"),
+            QStringLiteral("模型 '%1' 导入成功!").arg(modelName)
+        );
+        rebuildBongoCatModelMenu();
+    } else {
+        QMessageBox::critical(
+            this,
+            QStringLiteral("导入失败"),
+            QStringLiteral("导入模型时发生错误，请检查文件夹权限。")
+        );
+    }
+}
+
+void PetWidget::deleteBongoCatModel(const QString &modelId)
+{
+    BongoModel model = BongoModelManager::instance().getModelById(modelId);
+    if (!model.isValid()) return;
+
+    auto ret = QMessageBox::question(
+        this,
+        QStringLiteral("删除模型"),
+        QStringLiteral("确定要删除模型 '%1' 吗?\n此操作不可撤销。").arg(model.name),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+    );
+
+    if (ret == QMessageBox::Yes) {
+        BongoModelManager::instance().deleteModel(modelId);
+        rebuildBongoCatModelMenu();
     }
 }

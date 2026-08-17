@@ -52,6 +52,7 @@ public:
     int petModelType() const;          // 0=CatLike, 1=BearLike, 2=BunnyLike
     QPoint windowPosition() const;
     QSize windowSize() const;
+    int autoReleaseDelay() const;          // L-105: 按键松开延时恢复 (ms)
 
     void setPrimaryColor(const QColor &c);
     void setSecondaryColor(const QColor &c);
@@ -65,6 +66,7 @@ public:
     void setPetModelType(int type);
     void setWindowPosition(const QPoint &pos);
     void setWindowSize(const QSize &size);
+    void setAutoReleaseDelay(int ms);      // L-105: 设置延时恢复时间
 
     // 预设主题列表
     QList<ThemePreset> themePresets() const;

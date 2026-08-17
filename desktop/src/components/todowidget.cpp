@@ -9,10 +9,18 @@
 #include <QPushButton>
 #include <QListWidget>
 #include <QCheckBox>
+#include <QHBoxLayout>
+#include <QComboBox>
+#include <QMenu>
+#include <QAction>
+#include <QInputDialog>
+#include <QDateTime>
+#include <QDebug>
+#include <QMetaObject>
 #include "appconfig.h"
 
 TodoWidget::TodoWidget(QWidget *parent)
-    : ComponentBase(parent)
+    : ComponentBase(parent), m_filterMode(FilterAll)
 {
     setupTransparentBackground();
 
@@ -20,17 +28,64 @@ TodoWidget::TodoWidget(QWidget *parent)
     layout->setContentsMargins(10, 10, 10, 10);
     layout->setSpacing(6);
 
-    // 标题
+    // 标题 + 筛选下拉栏
+    auto *headerLayout = new QHBoxLayout();
     auto *titleLabel = new QLabel(QStringLiteral("📝 待办清单"));
     titleLabel->setStyleSheet("color: white; font-size: 12px; font-weight: bold;");
-    layout->addWidget(titleLabel);
+    titleLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    headerLayout->addWidget(titleLabel);
+
+    m_filterCombo = new QComboBox();
+    m_filterCombo->addItem(QStringLiteral("全部"), FilterAll);
+    m_filterCombo->addItem(QStringLiteral("未完成"), FilterActive);
+    m_filterCombo->addItem(QStringLiteral("已完成"), FilterDone);
+    m_filterCombo->setStyleSheet(
+        "QComboBox {"
+        "  background: rgba(255,255,255,180); border: none;"
+        "  border-radius: 8px; padding: 3px 8px; font-size: 10px;"
+        "  color: #0f172a; min-width: 60px;"
+        "}"
+        "QComboBox::drop-down { border: none; width: 14px; }"
+        "QComboBox QAbstractItemView {"
+        "  background: rgba(255,255,255,240); border: none;"
+        "  border-radius: 8px; selection-background-color: #fbbf24;"
+        "  color: #0f172a; padding: 4px; font-size: 10px;"
+        "}"
+    );
+    connect(m_filterCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &TodoWidget::onFilterChanged);
+    headerLayout->addWidget(m_filterCombo);
+    layout->addLayout(headerLayout);
 
     // 列表
     m_listWidget = new QListWidget();
+    m_listWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_listWidget->setTextElideMode(Qt::ElideRight);
+    m_listWidget->setMouseTracking(true);
     m_listWidget->setStyleSheet(
         "QListWidget { background: transparent; border: none; }"
-        "QListWidget::item { color: white; padding: 4px; font-size: 11px; }"
+        "QListWidget::item {"
+        "  color: white;"
+        "  padding: 4px 8px 4px 2px;"
+        "  font-size: 11px;"
+        "}"
         "QListWidget::item:selected { background: rgba(255,255,255,30); }"
+        // 美化勾选框 - 圆形，左对齐，右侧留间距给文字
+        "QListWidget::indicator {"
+        "  width: 16px; height: 16px; border-radius: 8px;"
+        "  margin: 0px 12px 0px 2px;"
+        "  border: 2px solid rgba(255,255,255,180);"
+        "  background: rgba(255,255,255,40);"
+        "}"
+        "QListWidget::indicator:hover {"
+        "  border: 2px solid white;"
+        "  background: rgba(255,255,255,80);"
+        "}"
+        "QListWidget::indicator:checked {"
+        "  background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+        "    stop:0 #fbbf24, stop:1 #f59e0b);"
+        "  border: 2px solid #fbbf24;"
+        "}"
     );
     layout->addWidget(m_listWidget);
 
@@ -44,10 +99,23 @@ TodoWidget::TodoWidget(QWidget *parent)
     );
 
     m_addBtn = new QPushButton("+");
-    m_addBtn->setFixedSize(30, 30);
+    m_addBtn->setFixedSize(32, 32);
+    m_addBtn->setCursor(Qt::PointingHandCursor);
     m_addBtn->setStyleSheet(
-        "QPushButton { background: rgba(255,255,255,200); border: none; "
-        "border-radius: 15px; font-size: 16px; font-weight: bold; color: #0f172a; }"
+        "QPushButton {"
+        "  background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+        "    stop:0 #fbbf24, stop:1 #f59e0b);"
+        "  border: none; border-radius: 16px;"
+        "  font-size: 18px; font-weight: bold; color: white;"
+        "}"
+        "QPushButton:hover {"
+        "  background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+        "    stop:0 #f59e0b, stop:1 #d97706);"
+        "}"
+        "QPushButton:pressed {"
+        "  background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+        "    stop:0 #d97706, stop:1 #b45309);"
+        "}"
     );
 
     inputLayout->addWidget(m_inputEdit);
@@ -58,8 +126,9 @@ TodoWidget::TodoWidget(QWidget *parent)
     connect(m_addBtn, &QPushButton::clicked, this, &TodoWidget::onAdd);
     connect(m_inputEdit, &QLineEdit::returnPressed, this, &TodoWidget::onAdd);
     connect(m_listWidget, &QListWidget::itemChanged, this, &TodoWidget::onItemChanged);
-    connect(m_listWidget, &QListWidget::itemDoubleClicked,
-            this, &TodoWidget::onItemDoubleClicked);
+    m_listWidget->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_listWidget, &QListWidget::customContextMenuRequested,
+            this, &TodoWidget::onItemContextMenu);
 
     loadTodos();
 }
@@ -70,22 +139,69 @@ void TodoWidget::loadTodos()
     QDir().mkpath(path);
     QFile file(path + "/backpet_todos.json");
 
-    if (!file.open(QFile::ReadOnly)) return;
+    if (!file.open(QFile::ReadOnly)) {
+        qDebug() << "[TodoWidget] no saved todos found at" << path;
+        m_allTodos = QJsonArray();
+        applyFilter();
+        return;
+    }
 
     QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
     file.close();
 
-    if (!doc.isArray()) return;
+    m_allTodos = doc.isArray() ? doc.array() : QJsonArray();
+    qDebug() << "[TodoWidget] loadTodos: loaded" << m_allTodos.size()
+             << "todos from" << path;
 
+    // 为缺少 id 的旧数据补上唯一 id（向后兼容）
+    bool needSave = false;
+    qint64 baseId = QDateTime::currentMSecsSinceEpoch();
+    int assigned = 0;
+    for (int i = 0; i < m_allTodos.size(); ++i) {
+        QJsonObject obj = m_allTodos[i].toObject();
+        if (obj["id"].toString().isEmpty()) {
+            obj["id"] = QString::number(baseId + i);
+            m_allTodos[i] = obj;
+            needSave = true;
+            assigned++;
+        }
+    }
+    if (assigned > 0) {
+        qDebug() << "[TodoWidget] assigned IDs to" << assigned << "legacy todos";
+    }
+    if (needSave) saveTodos();
+
+    applyFilter();
+}
+
+void TodoWidget::applyFilter()
+{
+    QSignalBlocker blocker(m_listWidget);
     m_listWidget->clear();
-    QJsonArray todos = doc.array();
-    for (const QJsonValue &val : todos) {
-        QJsonObject obj = val.toObject();
-        auto *item = new QListWidgetItem(obj["text"].toString(), m_listWidget);
-        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-        item->setCheckState(obj["done"].toBool() ? Qt::Checked : Qt::Unchecked);
 
-        if (obj["done"].toBool()) {
+    qDebug() << "[TodoWidget] applyFilter: total todos=" << m_allTodos.size()
+             << "filterMode=" << m_filterMode;
+
+    for (const QJsonValue &val : m_allTodos) {
+        QJsonObject obj = val.toObject();
+        bool done = obj["done"].toBool();
+        bool include = false;
+        switch (m_filterMode) {
+            case FilterAll:    include = true; break;
+            case FilterActive: include = !done; break;
+            case FilterDone:   include = done; break;
+        }
+        if (!include) continue;
+
+        QString text = obj["text"].toString();
+        QString id = obj["id"].toString();
+        auto *item = new QListWidgetItem(text, m_listWidget);
+        item->setData(Qt::UserRole, id);
+        item->setToolTip(text);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setCheckState(done ? Qt::Checked : Qt::Unchecked);
+
+        if (done) {
             QFont f = item->font();
             f.setStrikeOut(true);
             item->setFont(f);
@@ -95,21 +211,18 @@ void TodoWidget::loadTodos()
 
 void TodoWidget::saveTodos()
 {
-    QJsonArray todos;
-    for (int i = 0; i < m_listWidget->count(); ++i) {
-        auto *item = m_listWidget->item(i);
-        QJsonObject obj;
-        obj["text"] = item->text();
-        obj["done"] = (item->checkState() == Qt::Checked);
-        todos.append(obj);
-    }
-
     QString path = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+    QDir().mkpath(path);
     QFile file(path + "/backpet_todos.json");
-    if (file.open(QFile::WriteOnly)) {
-        file.write(QJsonDocument(todos).toJson());
-        file.close();
+    if (!file.open(QFile::WriteOnly)) {
+        qWarning() << "[TodoWidget] failed to save todos to" << path;
+        return;
     }
+    QByteArray data = QJsonDocument(m_allTodos).toJson();
+    file.write(data);
+    file.close();
+    qDebug() << "[TodoWidget] saveTodos: wrote" << m_allTodos.size()
+             << "todos to" << path;
 }
 
 void TodoWidget::onAdd()
@@ -117,27 +230,176 @@ void TodoWidget::onAdd()
     QString text = m_inputEdit->text().trimmed();
     if (text.isEmpty()) return;
 
-    auto *item = new QListWidgetItem(text, m_listWidget);
-    item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-    item->setCheckState(Qt::Unchecked);
+    QJsonObject obj;
+    obj["id"] = QString::number(QDateTime::currentMSecsSinceEpoch());
+    obj["text"] = text;
+    obj["done"] = false;
+    m_allTodos.append(obj);
+
+    qDebug() << "[TodoWidget] onAdd: id=" << obj["id"].toString()
+             << "text=" << text;
 
     m_inputEdit->clear();
     saveTodos();
+    applyFilter();
 }
 
 void TodoWidget::onItemChanged(QListWidgetItem *item)
 {
+    if (!item) {
+        qWarning() << "[TodoWidget] onItemChanged called with null item!";
+        return;
+    }
+
     QFont f = item->font();
-    f.setStrikeOut(item->checkState() == Qt::Checked);
+    bool done = (item->checkState() == Qt::Checked);
+    f.setStrikeOut(done);
     item->setFont(f);
+
+    QString targetId = item->data(Qt::UserRole).toString();
+    qDebug() << "[TodoWidget] onItemChanged: id=" << targetId
+             << "done=" << done << "text=" << item->text();
+
+    if (targetId.isEmpty()) {
+        qWarning() << "[TodoWidget] item has no UserRole id, skipping data update";
+        return;
+    }
+
+    // 通过唯一 id 精确匹配对应项并更新
+    bool found = false;
+    for (int i = 0; i < m_allTodos.size(); ++i) {
+        QJsonObject obj = m_allTodos[i].toObject();
+        if (obj["id"].toString() == targetId) {
+            obj["done"] = done;
+            m_allTodos[i] = obj;
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        qWarning() << "[TodoWidget] no matching todo found for id=" << targetId;
+        return;
+    }
+
+    saveTodos();
+
+    // 延迟刷新列表，避免在信号处理中删除触发信号的 item（use-after-free）
+    QMetaObject::invokeMethod(this, [this]() {
+        applyFilter();
+    }, Qt::QueuedConnection);
+}
+
+void TodoWidget::onItemContextMenu(const QPoint &pos)
+{
+    QListWidgetItem *item = m_listWidget->itemAt(pos);
+    if (!item) return;
+
+    m_listWidget->setCurrentItem(item);
+
+    QMenu menu(this);
+    menu.setStyleSheet(
+        "QMenu { background: rgba(30,30,50,240); color: white; border: none; border-radius: 8px; padding: 4px; }"
+        "QMenu::item { padding: 6px 20px; border-radius: 4px; }"
+        "QMenu::item:selected { background: rgba(251,191,36,180); }"
+    );
+
+    QAction *editAction = menu.addAction(QStringLiteral("✏️ 编辑"));
+    QAction *deleteAction = menu.addAction(QStringLiteral("🗑️ 删除"));
+
+    QAction *selected = menu.exec(m_listWidget->mapToGlobal(pos));
+
+    if (selected == editAction) {
+        onEditItem();
+    } else if (selected == deleteAction) {
+        onDeleteItem();
+    }
+}
+
+void TodoWidget::onEditItem()
+{
+    QListWidgetItem *item = m_listWidget->currentItem();
+    if (!item) return;
+
+    bool ok = false;
+    QString newText = QInputDialog::getText(
+        this,
+        QStringLiteral("编辑任务"),
+        QStringLiteral("任务内容:"),
+        QLineEdit::Normal,
+        item->text(),
+        &ok
+    );
+
+    if (!ok || newText.trimmed().isEmpty()) return;
+    newText = newText.trimmed();
+
+    QString oldText = item->text();
+    QString targetId = item->data(Qt::UserRole).toString();
+    qDebug() << "[TodoWidget] onEditItem: id=" << targetId
+             << "oldText=" << oldText << "newText=" << newText;
+
+    // 更新视图项
+    {
+        QSignalBlocker blocker(m_listWidget);
+        item->setText(newText);
+        item->setToolTip(newText);
+    }
+
+    // 更新数据
+    for (int i = 0; i < m_allTodos.size(); ++i) {
+        QJsonObject obj = m_allTodos[i].toObject();
+        if (obj["id"].toString() == targetId) {
+            obj["text"] = newText;
+            m_allTodos[i] = obj;
+            break;
+        }
+    }
     saveTodos();
 }
 
-void TodoWidget::onItemDoubleClicked(QListWidgetItem *item)
+void TodoWidget::onDeleteItem()
 {
-    // 双击删除
-    delete m_listWidget->takeItem(m_listWidget->row(item));
+    QListWidgetItem *item = m_listWidget->currentItem();
+    if (!item) return;
+
+    QString targetId = item->data(Qt::UserRole).toString();
+    qDebug() << "[TodoWidget] onDeleteItem: id=" << targetId
+             << "text=" << item->text();
+
+    if (targetId.isEmpty()) {
+        qWarning() << "[TodoWidget] item has no UserRole id, skipping delete";
+        return;
+    }
+
+    // 从 m_allTodos 中删除对应项
+    bool found = false;
+    for (int i = 0; i < m_allTodos.size(); ++i) {
+        QJsonObject obj = m_allTodos[i].toObject();
+        if (obj["id"].toString() == targetId) {
+            m_allTodos.removeAt(i);
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        qWarning() << "[TodoWidget] no matching todo found for id=" << targetId;
+        return;
+    }
+
     saveTodos();
+
+    // 延迟刷新列表，避免在信号处理中删除 item
+    QMetaObject::invokeMethod(this, [this]() {
+        applyFilter();
+    }, Qt::QueuedConnection);
+}
+
+void TodoWidget::onFilterChanged(int index)
+{
+    m_filterMode = static_cast<FilterMode>(m_filterCombo->itemData(index).toInt());
+    applyFilter();
 }
 
 void TodoWidget::refresh()
