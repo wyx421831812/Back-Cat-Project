@@ -30,6 +30,8 @@ BongoCatWidget::~BongoCatWidget()
 void BongoCatWidget::loadImages()
 {
     m_cover = QPixmap(":/assets/bongo/cover.png");
+
+    // 按键 vkCode -> 名称映射
     static const QMap<int, QString> keyMap = {
         {0x41, "KeyA"}, {0x42, "KeyB"}, {0x43, "KeyC"}, {0x44, "KeyD"},
         {0x45, "KeyE"}, {0x46, "KeyF"}, {0x47, "KeyG"}, {0x51, "KeyQ"},
@@ -40,16 +42,48 @@ void BongoCatWidget::loadImages()
         {0x20, "Space"}, {0x0D, "Return"}, {0x10, "Shift"},
         {0x11, "Control"}, {0x12, "Alt"},
     };
+
+    // 按键左右手分类表，参照原版 BongoCat 的 left-keys / right-keys 目录划分
+    // 左手区：键盘左半边的字母 + 修饰键 + 空格（由左手按）
+    static const QSet<int> leftHandKeys = {
+        0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,  // A-G
+        0x51, 0x52, 0x53, 0x54, 0x56, 0x57, 0x58, 0x5A,  // Q R S T V W X Z
+        0x10, 0x11, 0x12, 0x20                       // Shift Control Alt Space
+    };
+    // 右手区：数字键 + 回车
+    static const QSet<int> rightHandKeys = {
+        0x31, 0x32, 0x33, 0x34, 0x35, 0x0D           // 1-5 + Return
+    };
+
     for (auto it = keyMap.begin(); it != keyMap.end(); ++it) {
         QPixmap pix(QString(":/assets/bongo/keys/%1.png").arg(it.value()));
         if (!pix.isNull()) {
             m_keyPixmaps[it.key()] = pix;
+
+            // 建立按键 -> 左右手映射
+            if (leftHandKeys.contains(it.key())) {
+                m_keyHandMap[it.key()] = HandSide::Left;
+            } else if (rightHandKeys.contains(it.key())) {
+                m_keyHandMap[it.key()] = HandSide::Right;
+            }
         }
     }
 }
 
 void BongoCatWidget::onShow() { installHook(); }
-void BongoCatWidget::onHide() { removeHook(); m_pressedKeys.clear(); }
+
+void BongoCatWidget::onHide()
+{
+    removeHook();
+    clearActiveKeys();
+}
+
+void BongoCatWidget::clearActiveKeys()
+{
+    m_activeKey[static_cast<int>(HandSide::Left)] = {};
+    m_activeKey[static_cast<int>(HandSide::Right)] = {};
+    update();
+}
 
 void BongoCatWidget::installHook()
 {
@@ -79,12 +113,29 @@ LRESULT CALLBACK BongoCatWidget::hookProc(int nCode, WPARAM wParam, LPARAM lPara
         int vk = static_cast<int>(kb->vkCode);
         bool isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
         bool isUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP);
+
+        // 只处理有贴图的按键
         if (s_instance->m_keyPixmaps.contains(vk)) {
             if (isDown) {
-                s_instance->m_pressedKeys.insert(vk);
+                // 查按键属于哪只手，默认归左手（未分类的按键）
+                HandSide side = s_instance->m_keyHandMap.value(vk, HandSide::Left);
+
+                // ★ 关键修复：同一只手同一时刻只保留一个按键贴图
+                // 对应原版 BongoCat useModel.ts handlePress 的互斥逻辑
+                // （path.split(sep).last(-2) === 'left-keys'/'right-keys'）
+                // 如果同手之前按的是别的键，新键按下后直接覆盖旧键
+                s_instance->m_activeKey[static_cast<int>(side)] = {
+                    vk,
+                    s_instance->m_keyPixmaps.value(vk),
+                    true
+                };
                 s_instance->update();
             } else if (isUp) {
-                s_instance->m_pressedKeys.remove(vk);
+                HandSide side = s_instance->m_keyHandMap.value(vk, HandSide::Left);
+                // 只释放对应手的按键，且只在该手当前激活的就是这个键时才清
+                if (s_instance->m_activeKey[static_cast<int>(side)].vk == vk) {
+                    s_instance->m_activeKey[static_cast<int>(side)] = {};
+                }
                 s_instance->update();
             }
         }
@@ -98,19 +149,27 @@ void BongoCatWidget::paintEvent(QPaintEvent *)
     QPainter painter(this);
     painter.setRenderHint(QPainter::SmoothPixmapTransform);
     painter.setRenderHint(QPainter::Antialiasing);
+
     QRect targetRect = rect();
     if (m_cover.isNull()) return;
+
     QSize scaledSize = m_cover.size().scaled(targetRect.size(), Qt::KeepAspectRatio);
     QRect drawRect(
         (targetRect.width() - scaledSize.width()) / 2,
         (targetRect.height() - scaledSize.height()) / 2,
         scaledSize.width(), scaledSize.height()
     );
+
+    // 1. 画底图（猫咪身体 + 键盘）
     painter.drawPixmap(drawRect, m_cover);
-    for (int vk : m_pressedKeys) {
-        auto it = m_keyPixmaps.find(vk);
-        if (it != m_keyPixmaps.end() && !it.value().isNull()) {
-            painter.drawPixmap(drawRect, it.value());
+
+    // 2. ★ 修复：每只手最多叠加一张按键贴图，杜绝多手叠加
+    // 对应原版 BongoCat main/index.vue 的 <img v-for="path in modelStore.pressedKeys">
+    // pressedKeys 经过 handlePress 互斥后，每只手最多一个键
+    for (int side = 0; side < 2; ++side) {
+        const ActiveKey &ak = m_activeKey[side];
+        if (ak.valid && !ak.pixmap.isNull()) {
+            painter.drawPixmap(drawRect, ak.pixmap);
         }
     }
 }
