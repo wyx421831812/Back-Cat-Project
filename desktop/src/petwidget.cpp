@@ -300,6 +300,17 @@ void PetWidget::updateOpacity()
 
 void PetWidget::switchToPet()
 {
+    // 离开BongoCat时恢复默认尺寸
+    if (m_stack->width() > 320) {
+        QSize cfgSize = AppConfig::instance().windowSize();
+        if (cfgSize.width() > 0 && cfgSize.height() > 0 && cfgSize.width() <= 320) {
+            setFixedSize(cfgSize);
+            m_stack->setGeometry(0, 0, cfgSize.width(), cfgSize.height());
+        } else {
+            setFixedSize(200, 250);
+            m_stack->setGeometry(0, 0, 200, 250);
+        }
+    }
     m_stack->setCurrentIndex(PetComponent);
     AppConfig::instance().setCurrentComponentIndex(PetComponent);
     AppConfig::instance().save();
@@ -307,6 +318,16 @@ void PetWidget::switchToPet()
 
 void PetWidget::switchToClock()
 {
+    if (m_stack->width() > 320) {
+        QSize cfgSize = AppConfig::instance().windowSize();
+        if (cfgSize.width() > 0 && cfgSize.height() > 0 && cfgSize.width() <= 320) {
+            setFixedSize(cfgSize);
+            m_stack->setGeometry(0, 0, cfgSize.width(), cfgSize.height());
+        } else {
+            setFixedSize(200, 250);
+            m_stack->setGeometry(0, 0, 200, 250);
+        }
+    }
     m_stack->setCurrentIndex(ClockComponent);
     AppConfig::instance().setCurrentComponentIndex(ClockComponent);
     AppConfig::instance().save();
@@ -314,6 +335,16 @@ void PetWidget::switchToClock()
 
 void PetWidget::switchToQuote()
 {
+    if (m_stack->width() > 320) {
+        QSize cfgSize = AppConfig::instance().windowSize();
+        if (cfgSize.width() > 0 && cfgSize.height() > 0 && cfgSize.width() <= 320) {
+            setFixedSize(cfgSize);
+            m_stack->setGeometry(0, 0, cfgSize.width(), cfgSize.height());
+        } else {
+            setFixedSize(200, 250);
+            m_stack->setGeometry(0, 0, 200, 250);
+        }
+    }
     m_stack->setCurrentIndex(QuoteComponent);
     AppConfig::instance().setCurrentComponentIndex(QuoteComponent);
     AppConfig::instance().save();
@@ -321,6 +352,16 @@ void PetWidget::switchToQuote()
 
 void PetWidget::switchToTodo()
 {
+    if (m_stack->width() > 320) {
+        QSize cfgSize = AppConfig::instance().windowSize();
+        if (cfgSize.width() > 0 && cfgSize.height() > 0 && cfgSize.width() <= 320) {
+            setFixedSize(cfgSize);
+            m_stack->setGeometry(0, 0, cfgSize.width(), cfgSize.height());
+        } else {
+            setFixedSize(200, 250);
+            m_stack->setGeometry(0, 0, 200, 250);
+        }
+    }
     m_stack->setCurrentIndex(TodoComponent);
     AppConfig::instance().setCurrentComponentIndex(TodoComponent);
     AppConfig::instance().save();
@@ -329,6 +370,12 @@ void PetWidget::switchToTodo()
 void PetWidget::switchToBongoCat()
 {
     m_stack->setCurrentIndex(BongoCatComponent);
+
+    // BongoCat窗口尺寸匹配background.png的宽高比 (1224x708 ≈ 1.728:1)
+    setFixedSize(420, 243);
+    m_stack->setGeometry(0, 0, 420, 243);
+    m_bongoCatWidget->setGeometry(0, 0, 420, 243);
+
     AppConfig::instance().setCurrentComponentIndex(BongoCatComponent);
     AppConfig::instance().save();
 }

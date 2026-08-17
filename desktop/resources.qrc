@@ -1,33 +1,220 @@
 <RCC>
     <qresource prefix="/">
+        <!-- 样式表 -->
         <file>assets/styles.qss</file>
+
+        <!-- 经典小键盘预设模型 (默认) -->
         <file>assets/bongo/cover.png</file>
         <file>assets/bongo/background.png</file>
-        <file>assets/bongo/keys/Alt.png</file>
-        <file>assets/bongo/keys/Control.png</file>
         <file>assets/bongo/keys/KeyA.png</file>
-        <file>assets/bongo/keys/KeyB.png</file>
-        <file>assets/bongo/keys/KeyC.png</file>
         <file>assets/bongo/keys/KeyD.png</file>
         <file>assets/bongo/keys/KeyE.png</file>
-        <file>assets/bongo/keys/KeyF.png</file>
-        <file>assets/bongo/keys/KeyG.png</file>
         <file>assets/bongo/keys/KeyQ.png</file>
         <file>assets/bongo/keys/KeyR.png</file>
         <file>assets/bongo/keys/KeyS.png</file>
-        <file>assets/bongo/keys/KeyT.png</file>
-        <file>assets/bongo/keys/KeyV.png</file>
         <file>assets/bongo/keys/KeyW.png</file>
-        <file>assets/bongo/keys/KeyX.png</file>
-        <file>assets/bongo/keys/KeyZ.png</file>
         <file>assets/bongo/keys/Num1.png</file>
         <file>assets/bongo/keys/Num2.png</file>
         <file>assets/bongo/keys/Num3.png</file>
         <file>assets/bongo/keys/Num4.png</file>
         <file>assets/bongo/keys/Num5.png</file>
-        <file>assets/bongo/keys/Return.png</file>
-        <file>assets/bongo/keys/Shift.png</file>
+        <file>assets/bongo/keys/Num6.png</file>
+        <file>assets/bongo/keys/Num7.png</file>
         <file>assets/bongo/keys/Space.png</file>
+
+        <!-- Live2D 核心 JS 库 -->
+        <file>resources/js/pixi.min.js</file>
+        <file>resources/js/pixi-live2d-display.js</file>
+        <file>resources/js/live2d.min.js</file>
+        <file>resources/js/live2dcubismcore.min.js</file>
+
+        <!-- Live2D 渲染页面 + QML (桥接通过 document.title，无需 qwebchannel.js) -->
         <file>resources/live2d-view.html</file>
+        <file>resources/live2d-webview.qml</file>
+
+        <!-- ============ BongoCat Standard 模式模型 ============ -->
+        <file>resources/models/standard/cat.model3.json</file>
+        <file>resources/models/standard/demomodel.cdi3.json</file>
+        <file>resources/models/standard/demomodel.moc3</file>
+        <file>resources/models/standard/exp_1.exp3.json</file>
+        <file>resources/models/standard/exp_2.exp3.json</file>
+        <file>resources/models/standard/live2d_expression0.exp3.json</file>
+        <file>resources/models/standard/live2d_expression1.exp3.json</file>
+        <file>resources/models/standard/live2d_expression2.exp3.json</file>
+        <file>resources/models/standard/live2d_motion1.motion3.json</file>
+        <file>resources/models/standard/live2d_motion2.motion3.json</file>
+        <file>resources/models/standard/live2d_motion1.flac</file>
+        <file>resources/models/standard/demomodel.1024/texture_00.png</file>
+        <file>resources/models/standard/demomodel.1024/texture_01.png</file>
+        <file>resources/models/standard/demomodel.1024/texture_02.png</file>
+        <file>resources/models/standard/resources/background.png</file>
+        <file>resources/models/standard/resources/cover.png</file>
+        <!-- Standard left-keys -->
+        <file>resources/models/standard/resources/left-keys/Alt.png</file>
+        <file>resources/models/standard/resources/left-keys/AltGr.png</file>
+        <file>resources/models/standard/resources/left-keys/BackQuote.png</file>
+        <file>resources/models/standard/resources/left-keys/Backspace.png</file>
+        <file>resources/models/standard/resources/left-keys/CapsLock.png</file>
+        <file>resources/models/standard/resources/left-keys/Control.png</file>
+        <file>resources/models/standard/resources/left-keys/ControlLeft.png</file>
+        <file>resources/models/standard/resources/left-keys/ControlRight.png</file>
+        <file>resources/models/standard/resources/left-keys/Delete.png</file>
+        <file>resources/models/standard/resources/left-keys/Escape.png</file>
+        <file>resources/models/standard/resources/left-keys/Fn.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyA.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyB.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyC.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyD.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyE.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyF.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyG.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyH.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyI.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyJ.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyK.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyL.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyM.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyN.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyO.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyP.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyQ.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyR.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyS.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyT.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyU.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyV.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyW.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyX.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyY.png</file>
+        <file>resources/models/standard/resources/left-keys/KeyZ.png</file>
+        <file>resources/models/standard/resources/left-keys/Meta.png</file>
+        <file>resources/models/standard/resources/left-keys/Num0.png</file>
+        <file>resources/models/standard/resources/left-keys/Num1.png</file>
+        <file>resources/models/standard/resources/left-keys/Num2.png</file>
+        <file>resources/models/standard/resources/left-keys/Num3.png</file>
+        <file>resources/models/standard/resources/left-keys/Num4.png</file>
+        <file>resources/models/standard/resources/left-keys/Num5.png</file>
+        <file>resources/models/standard/resources/left-keys/Num6.png</file>
+        <file>resources/models/standard/resources/left-keys/Num7.png</file>
+        <file>resources/models/standard/resources/left-keys/Num8.png</file>
+        <file>resources/models/standard/resources/left-keys/Num9.png</file>
+        <file>resources/models/standard/resources/left-keys/Return.png</file>
+        <file>resources/models/standard/resources/left-keys/Shift.png</file>
+        <file>resources/models/standard/resources/left-keys/ShiftLeft.png</file>
+        <file>resources/models/standard/resources/left-keys/ShiftRight.png</file>
+        <file>resources/models/standard/resources/left-keys/Slash.png</file>
+        <file>resources/models/standard/resources/left-keys/Space.png</file>
+        <file>resources/models/standard/resources/left-keys/Tab.png</file>
+
+        <!-- ============ BongoCat Keyboard 模式模型 ============ -->
+        <file>resources/models/keyboard/cat.model3.json</file>
+        <file>resources/models/keyboard/demomodel2.cdi3.json</file>
+        <file>resources/models/keyboard/demomodel2.moc3</file>
+        <file>resources/models/keyboard/exp_1.exp3.json</file>
+        <file>resources/models/keyboard/exp_2.exp3.json</file>
+        <file>resources/models/keyboard/live2d_expression0.exp3.json</file>
+        <file>resources/models/keyboard/live2d_expression1.exp3.json</file>
+        <file>resources/models/keyboard/live2d_expression2.exp3.json</file>
+        <file>resources/models/keyboard/live2d_motion1.motion3.json</file>
+        <file>resources/models/keyboard/live2d_motion2.motion3.json</file>
+        <file>resources/models/keyboard/live2d_motion1.flac</file>
+        <file>resources/models/keyboard/demomodel2.1024/texture_00.png</file>
+        <file>resources/models/keyboard/demomodel2.1024/texture_01.png</file>
+        <file>resources/models/keyboard/demomodel2.1024/texture_02.png</file>
+        <file>resources/models/keyboard/resources/background.png</file>
+        <file>resources/models/keyboard/resources/cover.png</file>
+        <!-- Keyboard left-keys -->
+        <file>resources/models/keyboard/resources/left-keys/Alt.png</file>
+        <file>resources/models/keyboard/resources/left-keys/AltGr.png</file>
+        <file>resources/models/keyboard/resources/left-keys/BackQuote.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Backspace.png</file>
+        <file>resources/models/keyboard/resources/left-keys/CapsLock.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Control.png</file>
+        <file>resources/models/keyboard/resources/left-keys/ControlLeft.png</file>
+        <file>resources/models/keyboard/resources/left-keys/ControlRight.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Delete.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Escape.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Fn.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyA.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyB.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyC.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyD.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyE.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyF.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyG.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyH.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyI.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyJ.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyK.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyL.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyM.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyN.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyO.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyP.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyQ.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyR.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyS.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyT.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyU.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyV.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyW.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyX.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyY.png</file>
+        <file>resources/models/keyboard/resources/left-keys/KeyZ.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Meta.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Num0.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Num1.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Num2.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Num3.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Num4.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Num5.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Num6.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Num7.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Num8.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Num9.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Return.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Shift.png</file>
+        <file>resources/models/keyboard/resources/left-keys/ShiftLeft.png</file>
+        <file>resources/models/keyboard/resources/left-keys/ShiftRight.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Slash.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Space.png</file>
+        <file>resources/models/keyboard/resources/left-keys/Tab.png</file>
+        <!-- Keyboard right-keys -->
+        <file>resources/models/keyboard/resources/right-keys/DownArrow.png</file>
+        <file>resources/models/keyboard/resources/right-keys/LeftArrow.png</file>
+        <file>resources/models/keyboard/resources/right-keys/RightArrow.png</file>
+        <file>resources/models/keyboard/resources/right-keys/UpArrow.png</file>
+
+        <!-- ============ BongoCat Gamepad 模式模型 ============ -->
+        <file>resources/models/gamepad/cat.model3.json</file>
+        <file>resources/models/gamepad/demomodel3.cdi3.json</file>
+        <file>resources/models/gamepad/demomodel3.moc3</file>
+        <file>resources/models/gamepad/exp_1.exp3.json</file>
+        <file>resources/models/gamepad/exp_2.exp3.json</file>
+        <file>resources/models/gamepad/live2d_expression0.exp3.json</file>
+        <file>resources/models/gamepad/live2d_expression1.exp3.json</file>
+        <file>resources/models/gamepad/live2d_expression2.exp3.json</file>
+        <file>resources/models/gamepad/live2d_motion1.motion3.json</file>
+        <file>resources/models/gamepad/live2d_motion2.motion3.json</file>
+        <file>resources/models/gamepad/live2d_motion1.flac</file>
+        <file>resources/models/gamepad/demomodel3.1024/texture_00.png</file>
+        <file>resources/models/gamepad/demomodel3.1024/texture_01.png</file>
+        <file>resources/models/gamepad/demomodel3.1024/texture_02.png</file>
+        <file>resources/models/gamepad/resources/background.png</file>
+        <file>resources/models/gamepad/resources/cover.png</file>
+        <!-- Gamepad left-keys -->
+        <file>resources/models/gamepad/resources/left-keys/DPadDown.png</file>
+        <file>resources/models/gamepad/resources/left-keys/DPadLeft.png</file>
+        <file>resources/models/gamepad/resources/left-keys/DPadRight.png</file>
+        <file>resources/models/gamepad/resources/left-keys/DPadUp.png</file>
+        <file>resources/models/gamepad/resources/left-keys/LeftTrigger.png</file>
+        <file>resources/models/gamepad/resources/left-keys/LeftTrigger2.png</file>
+        <!-- Gamepad right-keys -->
+        <file>resources/models/gamepad/resources/right-keys/East.png</file>
+        <file>resources/models/gamepad/resources/right-keys/North.png</file>
+        <file>resources/models/gamepad/resources/right-keys/RightTrigger.png</file>
+        <file>resources/models/gamepad/resources/right-keys/RightTrigger2.png</file>
+        <file>resources/models/gamepad/resources/right-keys/South.png</file>
+        <file>resources/models/gamepad/resources/right-keys/West.png</file>
     </qresource>
 </RCC>

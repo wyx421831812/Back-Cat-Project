@@ -11,9 +11,8 @@
 #include <QElapsedTimer>
 #include <QPainter>
 
-#ifdef QT_WEBENGINEWIDGETS_LIB
+#ifdef HAS_LIVE2D_SUPPORT
 #include "live2dwidget.h"
-#define HAS_LIVE2D_SUPPORT
 #endif
 
 #ifdef Q_OS_WIN
@@ -54,12 +53,24 @@ public:
     void setMouseFollowEnabled(bool enabled);
     bool isMouseFollowEnabled() const;
 
+    // L-105: 自动释放延迟设置
+    void setAutoReleaseDelay(int ms);
+    int autoReleaseDelay() const;
+
     // Live2D支持
     bool hasLive2DSupport() const;
     bool isUsingLive2D() const;
 
+    // L-104: 游戏手柄开关
+    void setGamepadEnabled(bool enabled);
+    bool isGamepadEnabled() const;
+
+    // L-104: 手柄模式下当前是否有手柄连接 (供设置界面判断)
+    bool isGamepadConnected() const;
+
 protected:
     void paintEvent(QPaintEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void enterEvent(QEnterEvent *event) override;
     void leaveEvent(QEvent *event) override;
@@ -99,6 +110,13 @@ private:
     bool shouldUseLive2D() const;
     void switchToLive2D();
     void switchToStaticImage();
+#ifdef HAS_LIVE2D_SUPPORT
+    // 将背景图和按键图路径推送到 Live2D HTML
+    void pushImagesToLive2D();
+#endif
+
+    // L-104: 手柄轮询 (Windows XInput)
+    void pollGamepadState();
 
 private:
     // 当前模型
@@ -127,6 +145,16 @@ private:
     bool m_rightHandActive = false;
     qint64 m_leftHandPressTime = 0;
     qint64 m_rightHandPressTime = 0;
+
+    // L-105: 可配置的自动释放延迟 (毫秒)
+    int m_autoReleaseDelay = 100;
+
+    // L-104: 游戏手柄
+    bool m_gamepadEnabled = true;
+    bool m_gamepadConnected = false;
+    quint32 m_lastGamepadButtons = 0;
+    double m_lastStickLX = 0, m_lastStickLY = 0;
+    double m_lastStickRX = 0, m_lastStickRY = 0;
 
     // Live2D 渲染相关
     bool m_useLive2D = false;

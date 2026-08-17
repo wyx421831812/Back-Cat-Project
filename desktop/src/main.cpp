@@ -1,7 +1,9 @@
 #include <QApplication>
 #include <QFile>
+#include <QtWebView>
 #include "petwidget.h"
 #include "appconfig.h"
+#include "components/localfileserver.h"
 
 int main(int argc, char *argv[])
 {
@@ -9,6 +11,12 @@ int main(int argc, char *argv[])
     QApplication::setHighDpiScaleFactorRoundingPolicy(
         Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
     QApplication app(argc, argv);
+
+    // 初始化 Qt WebView (Windows 上加载 WebView2 后端，必须在使用 WebView 前调用)
+    QtWebView::initialize();
+
+    // 启动本地文件服务器 (解决 WebView2 下 file:/// 被 CORS 阻止的问题)
+    LocalFileServer::instance()->start();
 
     // 设置应用信息
     app.setApplicationName("BackPet");

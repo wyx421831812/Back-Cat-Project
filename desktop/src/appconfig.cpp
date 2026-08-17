@@ -206,6 +206,16 @@ void AppConfig::setWindowSize(const QSize &size)
     m_config["windowHeight"] = size.height();
 }
 
+int AppConfig::autoReleaseDelay() const
+{
+    return m_config.value("autoReleaseDelay", 100).toInt();
+}
+
+void AppConfig::setAutoReleaseDelay(int ms)
+{
+    m_config["autoReleaseDelay"] = ms;
+}
+
 QList<AppConfig::ThemePreset> AppConfig::themePresets() const
 {
     return {

@@ -8,25 +8,211 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { width: 100%; height: 100%; overflow: hidden; }
         body { background: transparent; }
-        #app { width: 100%; height: 100%; }
+        #app {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 2;
+        }
+        /* 背景层 (在 canvas 之下) */
+        #bg-layer {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            object-fit: fill;
+            z-index: 1;
+            pointer-events: none;
+            display: none;
+        }
+        /* pixi.js 使用 #app canvas 作为渲染目标 */
+        /* 按键图层 (在 canvas 之上) */
+        #key-layer {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 3;
+            pointer-events: none;
+        }
+        #key-layer img {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            object-fit: fill;
+        }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/pixi.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/pixi-live2d-display.min.js"></script>
-    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+
+    <!-- 所有 JS 库由 C++ 在 loadCombinedHtml() 中内联注入 (Qt WebView 不支持 qrc:/ 协议) -->
+    /*__INLINE_SCRIPTS__*/
 </head>
 <body>
-    <div id="app"></div>
+    <img id="bg-layer" alt="" />
+    <canvas id="app"></canvas>
+    <div id="key-layer"></div>
     <script>
-    // === Live2D 渲染引擎 ===
+    // =============================================
+    // === BongoCat Live2D 渲染引擎（Qt 集成版）===
+    // 兼容 BongoCat 三种模型模式: standard / keyboard / gamepad
+    // =============================================
+
     let app = null;
     let model = null;
     let currentModelPath = null;
+    let currentMode = 'standard'; // standard | keyboard | gamepad
     let isInitialized = false;
+    let coreReady = false;
 
+    // === L-105: 可配置的自动释放延迟 (毫秒) ===
+    let autoReleaseDelay = 100;
+
+    // === L-102/L-103: 手部/鼠标按键状态追踪 ===
+    // leftHandDown/rightHandDown 对应 BongoCat 官方参数 CatParamLeftHandDown/CatParamRightHandDown
+    // (键盘按键、手柄按键都会驱动这两个状态)
+    let leftHandDown = false;
+    let rightHandDown = false;
+    let leftHandReleaseTime = 0;
+    let rightHandReleaseTime = 0;
+    let leftHandPendingRelease = false;
+    let rightHandPendingRelease = false;
+    // 鼠标左右键独立状态 (仅 standard 模型有 ParamMouseLeftDown/RightDown 参数)
+    let mouseLeftDown = false;
+    let mouseRightDown = false;
+
+    // === L-101: 鼠标位置 (屏幕归一化坐标 0~1, 由 C++ 端从 [-1,1] 转换) ===
+    // 参考 BongoCat useModel.ts handleMouseMove:
+    //   xRatio/yRatio ∈ [0,1], 然后按参数 min/max 范围映射
+    let targetMouseXRatio = 0.5;
+    let targetMouseYRatio = 0.5;
+    let currentMouseXRatio = 0.5;
+    let currentMouseYRatio = 0.5;
+
+    // === L-104: 手柄 (摇杆参数 + 按键参数) ===
+    let stickLX = 0, stickLY = 0, stickRX = 0, stickRY = 0;
+    let stickShowLeft = false, stickShowRight = false;
+    let stickLeftDown = false, stickRightDown = false;
+
+    // === L-104: 待机动画 - 自动眨眼 ===
+    // pixi-live2d-display 内置眨眼有时不可靠，这里手动控制以保证稳定性
+    let blinkNextTime = 0;       // 下一次眨眼的时间戳
+    let blinkState = 'open';     // 'open' | 'closing' | 'closed' | 'opening'
+    let blinkStateTime = 0;      // 当前状态进入时间
+    let eyeOpenValue = 1.0;      // 当前眼睛张开度 0~1
+    let lastInteractionTime = 0; // 最后一次交互时间，用于判断是否进入待机
+    const BLINK_INTERVAL_MIN = 2200;
+    const BLINK_INTERVAL_MAX = 5500;
+
+    // === 模型参数存在性缓存 (避免每帧 try/catch) ===
+    const paramExists = {};
+    function hasParam(id) {
+        if (id in paramExists) return paramExists[id];
+        if (!model) { paramExists[id] = false; return false; }
+        try {
+            var v = model.getParameterValueById(id);
+            paramExists[id] = (typeof v === 'number');
+        } catch (e) { paramExists[id] = false; }
+        return paramExists[id];
+    }
+    function safeSetParam(id, value) {
+        if (!paramExists[id]) return;
+        try { model.setParameterValueById(id, value); } catch (e) {}
+    }
+    // 获取参数范围 [min, max]，不存在或无范围返回 null
+    function getParamRange(id) {
+        if (!model) return null;
+        try {
+            var r = model.getParameterValueRangeById(id);
+            if (r && typeof r.min === 'number' && typeof r.max === 'number') return r;
+        } catch (e) {}
+        return null;
+    }
+
+    // ==================================================
+    // === 完整键盘支持 (对应 BongoCat keyboard.ts) ===
+    // ==================================================
+    // 左右手按物理键位划分（左半区→左手，右半区→右手），
+    // 同时包含基础名和 Left/Right 变体以兼容 C++ vkToKeyName 输出。
+    const LEFT_KEYS = new Set([
+        // 字母左半区
+        'KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT',
+        'KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG',
+        'KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyB',
+        // 主键盘数字 1-5
+        'Digit1', 'Num1', 'Digit2', 'Num2', 'Digit3', 'Num3',
+        'Digit4', 'Num4', 'Digit5', 'Num5', 'Digit6', 'Num6',
+        // 功能键左半
+        'Escape', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6',
+        // 符号 / 控制
+        'Backquote', 'BackQuote', 'Minus', 'Equal', 'Backspace',
+        'Tab', 'CapsLock',
+        'BracketLeft', 'BracketRight', 'Backslash',
+        'Semicolon', 'Quote', 'Enter', 'Return', 'Comma',
+        // 修饰键 (基础名 + 左变体)
+        'Shift', 'ShiftLeft',
+        'Control', 'ControlLeft',
+        'Alt', 'AltLeft',
+        'Meta', 'MetaLeft',
+        'Fn', 'Delete', 'Space', 'ContextMenu'
+    ]);
+
+    // 右键盘区
+    const RIGHT_KEYS = new Set([
+        // 字母右半区
+        'KeyY', 'KeyU', 'KeyI', 'KeyO', 'KeyP',
+        'KeyH', 'KeyJ', 'KeyK', 'KeyL',
+        'KeyN', 'KeyM',
+        // 主键盘数字 6-0 (6 同时在左手集合，归哪边看物理位置；这里右手集合也包含 7-0)
+        'Digit7', 'Num7', 'Digit8', 'Num8', 'Digit9', 'Num9', 'Digit0', 'Num0',
+        // 功能键右半
+        'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
+        // 符号
+        'Period', 'Slash',
+        // 方向键 (DOM 名 + 简短名 + 资源文件别名)
+        'ArrowUp', 'Up', 'ArrowDown', 'Down',
+        'ArrowLeft', 'Left', 'ArrowRight', 'Right',
+        'UpArrow', 'DownArrow', 'LeftArrow', 'RightArrow',
+        // 修饰键右变体
+        'ShiftRight', 'ControlRight', 'AltRight', 'MetaRight', 'AltGr'
+    ]);
+
+    // 游戏手柄按键映射 (对应 BongoCat gamepad model resources/)
+    // 左手按键: A(0)/X(2)/LB(4)/LT(6)/D-Left(14)/D-Up(12)/D-Down(13)
+    const GAMEPAD_LEFT_BUTTONS = new Set([0, 2, 4, 6, 12, 13, 14]);
+    // 右手按键: B(1)/Y(3)/RB(5)/RT(7)/D-Right(15)/Start(9)
+    const GAMEPAD_RIGHT_BUTTONS = new Set([1, 3, 5, 7, 8, 9, 15]);
+
+    // === 初始化入口 (依赖 CDN/local 加载完毕后由 onload 回调触发) ===
+    function initLive2dCore() {
+        if (coreReady) return;
+        coreReady = true;
+
+        // 如果外部调用了 initPixi，等待 PIXI 全局对象就绪
+        if (typeof PIXI === 'undefined' || typeof PIXI.Application === 'undefined') {
+            setTimeout(initLive2dCore, 50);
+            return;
+        }
+
+        console.log('[BongoCat Live2D] Core ready, PIXI v' + PIXI.VERSION);
+        startBridge();
+    }
+
+    // 给 onload 回调暴露全局名
+    window.initLive2dCore = initLive2dCore;
+
+    // === 启动初始化：脚本 onload 没触发的情况下兜底 ===
+    (function bootCheck() {
+        var tryCount = 0;
+        var t = setInterval(function() {
+            tryCount++;
+            if (typeof PIXI !== 'undefined' && typeof PIXI.Application !== 'undefined') {
+                clearInterval(t);
+                initLive2dCore();
+            }
+            if (tryCount > 200) {
+                clearInterval(t);
+                console.error('[BongoCat Live2D] Failed to load pixi.js after 10s');
+            }
+        }, 50);
+    })();
+
+    // =============================================
     // === Pixi.js 初始化 ===
     function initPixi() {
         if (app) return app;
-
         app = new PIXI.Application({
             view: document.getElementById('app'),
             transparent: true,
@@ -37,149 +223,138 @@
             resolution: window.devicePixelRatio || 1,
             antialias: true
         });
-
-        window.addEventListener('resize', () => {
-            if (model) {
-                scaleModel();
-            }
-        });
-
+        window.addEventListener('resize', function() { if (model) scaleModel(); });
         return app;
     }
 
-    // === 加载Live2D模型 ===
+    // =============================================
+    // === 加载 Live2D 模型 (自动匹配模式) ===
     async function loadModel(modelPath) {
         try {
             initPixi();
+            if (model) { model.destroy(); model = null; }
 
-            if (model) {
-                model.destroy();
-                model = null;
-            }
+            currentModelPath = modelPath;
 
-            // 转换文件路径 (Windows路径需要特殊处理)
-            const assetPath = modelPath.replace(/\\/g, '/');
-            const modelJsonPath = assetPath.endsWith('.model3.json')
+            // 从路径识别模式 (standard/keyboard/gamepad)
+            var low = modelPath.toLowerCase().replace(/\\/g, '/');
+            if (low.indexOf('/gamepad') >= 0) currentMode = 'gamepad';
+            else if (low.indexOf('/keyboard') >= 0) currentMode = 'keyboard';
+            else currentMode = 'standard';
+            console.log('[loadModel] mode=' + currentMode + ' path=' + modelPath);
+
+            var assetPath = modelPath.replace(/\\/g, '/');
+            var modelJsonPath = assetPath.endsWith('.model3.json')
                 ? assetPath
                 : assetPath + '/cat.model3.json';
 
-            console.log('Loading model from:', modelJsonPath);
+            console.log('[loadModel] Loading model3.json:', modelJsonPath);
 
             model = await PIXI.live2d.Live2DModel.from(modelJsonPath, {
                 autoInteract: false,
                 autoUpdate: true
             });
 
-            // 设置模型位置
             scaleModel();
             app.stage.addChild(model);
-
-            // 初始化参数
             resetParameters();
 
-            // 通知C++端模型加载完成
-            if (typeof qt !== 'undefined' && qt.live2d) {
-                const modelInfo = {
-                    width: model.width,
-                    height: model.height,
+            if (notifyModelLoaded) {
+                var modelInfo = {
+                    width: model.width || 0,
+                    height: model.height || 0,
+                    mode: currentMode,
                     motions: getAvailableMotions(),
                     expressions: getAvailableExpressions()
                 };
-                qt.live2d.onModelLoaded(JSON.stringify(modelInfo));
+                notifyModelLoaded(modelInfo);
             }
-
-            console.log('Model loaded successfully');
+            console.log('Model loaded. mode=' + currentMode);
             return true;
         } catch (error) {
             console.error('Failed to load model:', error);
-            if (typeof qt !== 'undefined' && qt.live2d) {
-                qt.live2d.onError(error.message);
-            }
+            notifyError(error.message || String(error));
             return false;
         }
     }
 
-    // === 缩放模型适配窗口 ===
     function scaleModel() {
         if (!model || !app) return;
-
-        const screenWidth = app.screen.width;
-        const screenHeight = app.screen.height;
-
-        // 计算缩放比例 (保持模型比例)
-        const scaleX = screenWidth / model.width;
-        const scaleY = screenHeight / model.height;
-        const scale = Math.min(scaleX, scaleY) * 0.9; // 留一点边距
-
-        model.scale.set(scale);
-
-        // 居中
-        model.x = (screenWidth - model.width * scale) / 2;
-        model.y = (screenHeight - model.height * scale) / 2;
+        var sw = app.screen.width;
+        var sh = app.screen.height;
+        var sx = sw / model.width;
+        var sy = sh / model.height;
+        var sc = Math.min(sx, sy) * 0.9;
+        model.scale.set(sc);
+        model.x = (sw - model.width * sc) / 2;
+        model.y = (sh - model.height * sc) / 2;
     }
 
-    // === 重置参数 ===
+    // =============================================
+    // === 参数重置 ===
     function resetParameters() {
         if (!model) return;
+        // 重置参数存在性缓存 (换模型后参数集合可能变化)
+        Object.keys(paramExists).forEach(function(k) { delete paramExists[k]; });
 
-        const params = ['ParamAngleX', 'ParamAngleY', 'ParamAngleZ',
-                        'ParamEyeBallX', 'ParamEyeBallY',
-                        'ParamMouthOpenY', 'ParamMouthForm',
-                        'ParamBodyAngleX'];
+        // L-101: 鼠标位置回到中心
+        targetMouseXRatio = currentMouseXRatio = 0.5;
+        targetMouseYRatio = currentMouseYRatio = 0.5;
 
-        params.forEach(param => {
-            try {
-                model.setParameterValueById(param, 0);
-            } catch (e) {
-                // 忽略不存在的参数
-            }
-        });
+        // L-102/L-103: 手部状态
+        leftHandDown = rightHandDown = false;
+        leftHandPendingRelease = rightHandPendingRelease = false;
+        mouseLeftDown = mouseRightDown = false;
+
+        // L-104: 手柄状态
+        stickLX = stickLY = stickRX = stickRY = 0;
+        stickShowLeft = stickShowRight = false;
+        stickLeftDown = stickRightDown = false;
+
+        // L-104: 眨眼状态重置
+        blinkState = 'open';
+        eyeOpenValue = 1.0;
+        blinkNextTime = performance.now() + BLINK_INTERVAL_MIN + Math.random() * (BLINK_INTERVAL_MAX - BLINK_INTERVAL_MIN);
+        lastInteractionTime = performance.now();
+
+        // 把已知参数归零
+        var params = [
+            'ParamAngleX', 'ParamAngleY', 'ParamAngleZ',
+            'ParamEyeBallX', 'ParamEyeBallY',
+            'ParamEyeLOpen', 'ParamEyeROpen',
+            'ParamMouthOpenY', 'ParamMouthForm',
+            'ParamBodyAngleX', 'ParamBodyAngleY', 'ParamBodyAngleZ',
+            'ParamBreath',
+            'ParamMouseX', 'ParamMouseY',
+            'ParamMouseLeftDown', 'ParamMouseRightDown',
+            'CatParamLeftHandDown', 'CatParamRightHandDown',
+            'CatParamStickLX', 'CatParamStickLY',
+            'CatParamStickRX', 'CatParamStickRY',
+            'CatParamStickShowLeftHand', 'CatParamStickShowRightHand',
+            'CatParamStickLeftDown', 'CatParamStickRightDown'
+        ];
+        for (var i = 0; i < params.length; i++) {
+            try { model.setParameterValueById(params[i], 0); } catch (e) {}
+        }
     }
 
-    // === 设置参数值 ===
     function setParameter(paramId, value) {
         if (!model) return false;
-        try {
-            model.setParameterValueById(paramId, value);
-            return true;
-        } catch (e) {
-            return false;
-        }
+        try { model.setParameterValueById(paramId, value); return true; }
+        catch (e) { return false; }
     }
 
-    // === 获取参数范围 ===
-    function getParameterRange(paramId) {
-        if (!model) return null;
-        try {
-            const param = model.internalModel.coreModel.getParameterIndex(paramId);
-            if (param < 0) return null;
-
-            const coreModel = model.internalModel.coreModel;
-            return {
-                min: coreModel.getParameterMinimumValue(param),
-                max: coreModel.getParameterMaximumValue(param),
-                def: coreModel.getParameterDefaultValue(param)
-            };
-        } catch (e) {
-            return null;
-        }
-    }
-
-    // === 播放动作 ===
     function playMotion(group, index) {
         if (!model) return false;
         try {
             if (group && model.motions && model.motions[group]) {
-                model.motion(group, index);
+                model.motion(group, index || 0);
                 return true;
             }
-        } catch (e) {
-            console.warn('Failed to play motion:', e);
-        }
+        } catch (e) { console.warn('playMotion err', e); }
         return false;
     }
 
-    // === 播放表情 ===
     function playExpression(index) {
         if (!model) return false;
         try {
@@ -187,142 +362,430 @@
                 model.expression(index);
                 return true;
             }
-        } catch (e) {
-            console.warn('Failed to play expression:', e);
-        }
+        } catch (e) { console.warn('playExpression err', e); }
         return false;
     }
 
-    // === 获取可用动作列表 ===
     function getAvailableMotions() {
         if (!model || !model.motions) return {};
-        const motions = {};
-        Object.keys(model.motions).forEach(key => {
-            motions[key] = model.motions[key].length;
-        });
-        return motions;
+        var out = {};
+        Object.keys(model.motions).forEach(function(k) { out[k] = model.motions[k].length; });
+        return out;
     }
-
-    // === 获取可用表情数量 ===
     function getAvailableExpressions() {
-        if (!model || !model.expressions) return 0;
-        return model.expressions.length;
+        return (model && model.expressions) ? model.expressions.length : 0;
+    }
+    // 注意: getParameterRange 已在文件前面定义 (带 min/max 校验)，此处不重复定义
+
+    // =============================================
+    // === L-105: 手部延时控制 ===
+    function setLeftHand(down) {
+        if (down) { leftHandDown = true; leftHandPendingRelease = false; }
+        else { leftHandPendingRelease = true; leftHandReleaseTime = performance.now(); }
+    }
+    function setRightHand(down) {
+        if (down) { rightHandDown = true; rightHandPendingRelease = false; }
+        else { rightHandPendingRelease = true; rightHandReleaseTime = performance.now(); }
+    }
+    function setAutoReleaseDelay(ms) {
+        autoReleaseDelay = Math.max(0, ms | 0);
+        console.log('autoReleaseDelay =', autoReleaseDelay, 'ms');
     }
 
-    // === 键盘/鼠标输入处理 ===
-    // 左手按键 -> 左眼参数
-    const LEFT_KEYS = ['KeyA', 'KeyB', 'KeyC', 'KeyD', 'KeyE', 'KeyF', 'KeyG',
-                       'KeyQ', 'KeyR', 'KeyS', 'KeyT', 'KeyV', 'KeyW', 'KeyX', 'KeyZ',
-                       'Num1', 'Num2', 'Num3', 'Space', 'Shift', 'Control'];
-
-    // 右手按键 -> 右眼参数
-    const RIGHT_KEYS = ['KeyH', 'KeyI', 'KeyJ', 'KeyK', 'KeyL', 'KeyM', 'KeyN',
-                        'KeyO', 'KeyP', 'KeyU', 'KeyY',
-                        'Num4', 'Num5', 'Num6', 'Num7', 'Num8', 'Num9', 'Num0',
-                        'Return', 'Alt', 'Tab'];
-
-    // 更新手部状态
-    function updateHandState(isLeft, isDown) {
-        if (!model) return;
-        try {
-            // BongoCat使用ParamHandLeft/ParamHandRight参数
-            // 0=默认, 1=按键按下
-            const paramId = isLeft ? 'ParamHandLeft' : 'ParamHandRight';
-            model.setParameterValueById(paramId, isDown ? 1 : 0);
-        } catch (e) {
-            // 备选方案：使用其他参数
-            // 有些模型使用 ParamBodyAngleX 等参数
-        }
-    }
-
-    // 处理按键按下
+    // =============================================
+    // === L-103: 键盘驱动左右手 (BongoCat 官方命名规范) ===
+    // 按键名 -> 图片路径 (由 C++ 通过 Live2DAPI._keyImages 注册)
     function handleKeyDown(keyName) {
-        if (LEFT_KEYS.includes(keyName)) {
-            updateHandState(true, true);
-        }
-        if (RIGHT_KEYS.includes(keyName)) {
-            updateHandState(false, true);
-        }
+        if (!keyName) return;
+        // 兼容 BongoCat DigitX / NumX / KeyX 混用
+        var k = normalizeKey(keyName);
+        if (LEFT_KEYS.has(k)) setLeftHand(true);
+        if (RIGHT_KEYS.has(k)) setRightHand(true);
 
-        // 播放按键音效/动作
-        if (keyName === 'Space') {
-            playMotion('TapBody', 0);
-        }
+        // 显示对应按键图 (同时用原始名、规范化名和方向键别名查找)
+        var paths = (window.Live2DAPI && window.Live2DAPI._keyImages) || {};
+        var url = paths[keyName] || paths[k] || paths[arrowAlias(keyName)] || paths[arrowAlias(k)];
+        if (url) setKeyImage(keyName, url);
     }
-
-    // 处理按键释放
     function handleKeyUp(keyName) {
-        if (LEFT_KEYS.includes(keyName)) {
-            updateHandState(true, false);
-        }
-        if (RIGHT_KEYS.includes(keyName)) {
-            updateHandState(false, false);
-        }
+        if (!keyName) return;
+        var k = normalizeKey(keyName);
+        if (LEFT_KEYS.has(k)) setLeftHand(false);
+        if (RIGHT_KEYS.has(k)) setRightHand(false);
+        clearKeyImage(keyName);
     }
 
-    // 处理鼠标移动 (眼睛跟随)
-    function handleMouseMove(x, y) {
+    // 规范化键名 (BongoCat vs Web DOM Key naming compatibility)
+    function normalizeKey(k) {
+        var map = {
+            'Num1': 'Digit1', 'Num2': 'Digit2', 'Num3': 'Digit3',
+            'Num4': 'Digit4', 'Num5': 'Digit5', 'Num6': 'Digit6',
+            'Num7': 'Digit7', 'Num8': 'Digit8', 'Num9': 'Digit9', 'Num0': 'Digit0',
+            'Up': 'ArrowUp', 'Down': 'ArrowDown', 'Left': 'ArrowLeft', 'Right': 'ArrowRight',
+            'Return': 'Enter',
+            'ControlLeft': 'Control', 'ControlRight': 'Control',
+            'ShiftLeft': 'Shift', 'ShiftRight': 'Shift',
+            'AltLeft': 'Alt', 'AltRight': 'Alt',
+            'MetaLeft': 'Meta', 'MetaRight': 'Meta'
+        };
+        return map[k] || k;
+    }
+
+    // 方向键资源文件名别名: C++ 注册的 BongoCat 模型文件名为 UpArrow/DownArrow/LeftArrow/RightArrow
+    function arrowAlias(k) {
+        var m = {
+            'ArrowUp': 'UpArrow', 'Up': 'UpArrow',
+            'ArrowDown': 'DownArrow', 'Down': 'DownArrow',
+            'ArrowLeft': 'LeftArrow', 'Left': 'LeftArrow',
+            'ArrowRight': 'RightArrow', 'Right': 'RightArrow'
+        };
+        return m[k] || null;
+    }
+
+    // =============================================
+    // === L-101: 鼠标驱动眼球 / 头部 (参考 BongoCat useModel.ts handleMouseMove) ===
+    // C++ 传入的 nx, ny ∈ [-1, 1] (屏幕中心为 0, 右下角为 1),
+    // 我们将其转到 [0, 1] 比例，再按各参数自身的 min/max 范围线性映射，
+    // 与官方算法 max - ratio*(max-min) 保持一致，保证角度方向正确。
+    function handleMouseMove(nx, ny) {
         if (!model) return;
-
-        // 将鼠标坐标归一化到 [-1, 1]
-        const nx = (x / window.innerWidth) * 2 - 1;
-        const ny = (y / window.innerHeight) * 2 - 1;
-
-        try {
-            model.setParameterValueById('ParamAngleX', nx * 30);
-            model.setParameterValueById('ParamAngleY', ny * 30);
-            model.setParameterValueById('ParamEyeBallX', nx);
-            model.setParameterValueById('ParamEyeBallY', ny);
-        } catch (e) {
-            // 忽略参数不存在的错误
-        }
+        targetMouseXRatio = Math.max(0, Math.min(1, nx * 0.5 + 0.5));
+        targetMouseYRatio = Math.max(0, Math.min(1, ny * 0.5 + 0.5));
+        lastInteractionTime = performance.now();
     }
 
-    // 处理鼠标按下
+    // =============================================
+    // === L-102: 鼠标左右键 ===
+    // button: 0=左键, 2=右键 (DOM MouseEvent.button 约定)
     function handleMouseDown(button) {
         if (!model) return;
-        try {
-            if (button === 0) { // 左键
-                model.setParameterValueById('ParamHandLeft', 1);
-            } else if (button === 2) { // 右键
-                model.setParameterValueById('ParamHandRight', 1);
-            }
-            // 播放点击动作
-            playMotion('TapBody', 0);
-        } catch (e) {
-            // 忽略错误
+        lastInteractionTime = performance.now();
+        if (button === 0) {
+            mouseLeftDown = true;
+            // 左键同时驱动左手按下动画 (BongoCat 行为: 鼠标左键 → 左手)
+            setLeftHand(true);
+        } else if (button === 2) {
+            mouseRightDown = true;
+            setRightHand(true);
         }
     }
-
-    // 处理鼠标释放
     function handleMouseUp(button) {
         if (!model) return;
-        try {
-            if (button === 0) {
-                model.setParameterValueById('ParamHandLeft', 0);
-            } else if (button === 2) {
-                model.setParameterValueById('ParamHandRight', 0);
-            }
-        } catch (e) {
-            // 忽略错误
+        if (button === 0) {
+            mouseLeftDown = false;
+            setLeftHand(false);
+        } else if (button === 2) {
+            mouseRightDown = false;
+            setRightHand(false);
         }
     }
 
-    // === Qt WebChannel 通信 ===
-    let qt = null;
+    // =============================================
+    // === L-104: 手柄输入接口 (从 C++ XInput 注入更准确) ===
+    // leftX/leftY/rightX/rightY: [-1, 1]
+    function handleGamepadAxis(leftX, leftY, rightX, rightY) {
+        var dz = 0.15;
+        stickLX = Math.abs(leftX) < dz ? 0 : leftX;
+        stickLY = Math.abs(leftY) < dz ? 0 : leftY;
+        stickRX = Math.abs(rightX) < dz ? 0 : rightX;
+        stickRY = Math.abs(rightY) < dz ? 0 : rightY;
+        stickShowLeft = stickLX !== 0 || stickLY !== 0 || stickLeftDown;
+        stickShowRight = stickRX !== 0 || stickRY !== 0 || stickRightDown;
+    }
+    function handleGamepadButtonDown(button) {
+        if (GAMEPAD_LEFT_BUTTONS.has(button)) { setLeftHand(true); stickLeftDown = true; stickShowLeft = true; }
+        if (GAMEPAD_RIGHT_BUTTONS.has(button)) { setRightHand(true); stickRightDown = true; stickShowRight = true; }
+    }
+    function handleGamepadButtonUp(button) {
+        if (GAMEPAD_LEFT_BUTTONS.has(button)) { setLeftHand(false); stickLeftDown = false; }
+        if (GAMEPAD_RIGHT_BUTTONS.has(button)) { setRightHand(false); stickRightDown = false; }
+        stickShowLeft = (stickLX !== 0 || stickLY !== 0 || stickLeftDown);
+        stickShowRight = (stickRX !== 0 || stickRY !== 0 || stickRightDown);
+    }
 
-    new QWebChannel(qt.webChannelTransport, function (channel) {
-        qt = channel.objects.qt;
-        isInitialized = true;
+    // =============================================
+    // === 背景图 & 按键图 (BongoCat 官方渲染层次) ===
+    // =============================================
+    const bgLayer = document.getElementById('bg-layer');
+    const keyLayer = document.getElementById('key-layer');
+    // keyName -> HTMLImageElement
+    const pressedKeyImages = {};
 
-        // 通知C++端JavaScript已准备就绪
-        if (qt && qt.live2d) {
-            qt.live2d.onReady();
+    function setBackground(url) {
+        if (!url) {
+            bgLayer.style.display = 'none';
+            bgLayer.removeAttribute('src');
+            return;
         }
-    });
+        bgLayer.src = url;
+        bgLayer.style.display = 'block';
+    }
 
-    // === 暴露给C++的全局接口 ===
+    function setKeyImage(keyName, url) {
+        if (!keyName) return;
+        var img = pressedKeyImages[keyName];
+        if (!img) {
+            img = document.createElement('img');
+            img.alt = '';
+            img.draggable = false;
+            keyLayer.appendChild(img);
+            pressedKeyImages[keyName] = img;
+        }
+        img.src = url;
+        img.style.display = 'block';
+    }
+
+    function clearKeyImage(keyName) {
+        var img = pressedKeyImages[keyName];
+        if (img) {
+            img.style.display = 'none';
+            img.removeAttribute('src');
+        }
+    }
+
+    function clearAllKeyImages() {
+        Object.keys(pressedKeyImages).forEach(function(k) {
+            clearKeyImage(k);
+        });
+    }
+
+    // =============================================
+    // === 主更新循环 (requestAnimationFrame) ===
+    var updateLoopCount = 0;
+    function updateLoop() {
+        if (!model) {
+            if (updateLoopCount < 3) { console.log('[updateLoop] waiting for model...'); updateLoopCount++; }
+            requestAnimationFrame(updateLoop);
+            return;
+        }
+        if (updateLoopCount === 0) {
+            console.log('[updateLoop] start, mode=' + currentMode);
+            updateLoopCount = 1;
+            // 首次启动时初始化眨眼计时
+            blinkNextTime = performance.now() + BLINK_INTERVAL_MIN + Math.random() * (BLINK_INTERVAL_MAX - BLINK_INTERVAL_MIN);
+        }
+
+        var now = performance.now();
+
+        // === L-105: 延时释放 (键盘/鼠标点击触发的手部状态在 autoReleaseDelay 后自动抬起) ===
+        if (leftHandPendingRelease && now - leftHandReleaseTime >= autoReleaseDelay) {
+            leftHandDown = false; leftHandPendingRelease = false;
+        }
+        if (rightHandPendingRelease && now - rightHandReleaseTime >= autoReleaseDelay) {
+            rightHandDown = false; rightHandPendingRelease = false;
+        }
+
+        // === L-101: 鼠标位置平滑插值 (damping, 帧率无关) ===
+        // 参考 BongoCat useDevice.ts: alpha = 1 - 0.75^(deltaMS/(1000/60))
+        var dt = 16.7;
+        if (updateLoop.lastT) {
+            dt = Math.max(8, Math.min(50, now - updateLoop.lastT));
+        }
+        updateLoop.lastT = now;
+        var alpha = 1 - Math.pow(0.75, dt / (1000 / 60));
+        currentMouseXRatio += (targetMouseXRatio - currentMouseXRatio) * alpha;
+        currentMouseYRatio += (targetMouseYRatio - currentMouseYRatio) * alpha;
+        // 合并右摇杆到眼球位置 (手柄模式)
+        var eyeRatioX = currentMouseXRatio + stickRX * 0.5;
+        var eyeRatioY = currentMouseYRatio + stickRY * 0.5;
+
+        // === L-101: 按参数 min/max 映射 (与 BongoCat useModel.handleMouseMove 一致) ===
+        // X/Y 轴: value = max - ratio * (max - min)
+        // Z 轴:    value = (1-2*xRatio) * (1-2*yRatio) * min
+        function mapAxis(id, ratio) {
+            var r = getParamRange(id);
+            if (!r) return null;
+            return r.max - ratio * (r.max - r.min);
+        }
+        function mapZAxis(id, xRatio, yRatio) {
+            var r = getParamRange(id);
+            if (!r) return null;
+            var dragX = 1 - 2 * xRatio;
+            var dragY = 1 - 2 * yRatio;
+            return dragX * dragY * r.min;
+        }
+
+        var vMouseX  = mapAxis('ParamMouseX', currentMouseXRatio);
+        var vMouseY  = mapAxis('ParamMouseY', currentMouseYRatio);
+        var vAngleX  = mapAxis('ParamAngleX', currentMouseXRatio);
+        var vAngleY  = mapAxis('ParamAngleY', currentMouseYRatio);
+        var vAngleZ  = mapZAxis('ParamAngleZ', currentMouseXRatio, currentMouseYRatio);
+        var vEyeBallX= mapAxis('ParamEyeBallX', eyeRatioX);
+        var vEyeBallY= mapAxis('ParamEyeBallY', eyeRatioY);
+
+        // 手柄左摇杆叠加到头部角度 (gamepad 模式)
+        if (vAngleX !== null) vAngleX += stickLX * 30;
+        if (vAngleY !== null) vAngleY -= stickLY * 30;
+        if (vAngleZ !== null) vAngleZ += stickLX * 10;
+
+        // === L-104: 待机动画 - 自然呼吸/摆动 (无交互时叠加正弦微动) ===
+        var idleTime = (now - lastInteractionTime) / 1000;
+        var idleAmount = Math.max(0, Math.min(1, (idleTime - 0.5) / 2.0)); // 0.5s 后开始，2.5s 达到最大
+        var breath = Math.sin(now / 1800) * 0.5 + 0.5;        // 0~1
+        var bodySway = Math.sin(now / 3200) * 3.0;             // ±3 度
+        var headBob = Math.sin(now / 2100) * 1.2;              // ±1.2 度
+        // ParamBreath 官方范围通常是 0~1
+        var breathValue = breath;
+
+        if (vAngleX !== null) vAngleX += bodySway * idleAmount * 0.5;
+        if (vAngleY !== null) vAngleY += headBob * idleAmount * 0.5;
+        // 身体角度跟随头部轻微转动
+        var bodyRange = getParamRange('ParamBodyAngleX');
+        var vBodyAngleX = (vAngleX !== null && bodyRange) ? vAngleX * 0.3 : null;
+
+        // === L-104: 自动眨眼状态机 ===
+        // 禁用 pixi-live2d-display 内置眨眼，由我们手动控制，更可靠
+        if (model.internalModel && model.internalModel.eyeBlink) {
+            try {
+                if (typeof model.internalModel.eyeBlink.setEyeBlink === 'function') {
+                    // no-op; pixi-live2d-display 没有标准 disable API，通过每帧覆盖参数即可
+                }
+            } catch (e) {}
+        }
+        updateBlink(now);
+        // 鼠标按下时不闭眼，避免视觉冲突 (但眨眼依然按计划进行)
+
+        // === 应用所有参数 ===
+        // 眼球 / 头部
+        if (vMouseX !== null)  safeSetParam('ParamMouseX', vMouseX);
+        if (vMouseY !== null)  safeSetParam('ParamMouseY', vMouseY);
+        if (vAngleX !== null)  safeSetParam('ParamAngleX', clamp(vAngleX, -30, 30));
+        if (vAngleY !== null)  safeSetParam('ParamAngleY', clamp(vAngleY, -30, 30));
+        if (vAngleZ !== null)  safeSetParam('ParamAngleZ', clamp(vAngleZ, -15, 15));
+        if (vEyeBallX !== null) safeSetParam('ParamEyeBallX', clamp(vEyeBallX, -1, 1));
+        if (vEyeBallY !== null) safeSetParam('ParamEyeBallY', clamp(vEyeBallY, -1, 1));
+        if (vBodyAngleX !== null) safeSetParam('ParamBodyAngleX', clamp(vBodyAngleX, -10, 10));
+
+        // 呼吸
+        safeSetParam('ParamBreath', breathValue);
+
+        // 眼睛开闭 (自动眨眼)
+        if (hasParam('ParamEyeLOpen')) safeSetParam('ParamEyeLOpen', eyeOpenValue);
+        if (hasParam('ParamEyeROpen')) safeSetParam('ParamEyeROpen', eyeOpenValue);
+
+        // L-102/L-103: 手部/鼠标按下状态 (官方参数名)
+        safeSetParam('CatParamLeftHandDown', leftHandDown ? 1 : 0);
+        safeSetParam('CatParamRightHandDown', rightHandDown ? 1 : 0);
+        safeSetParam('ParamMouseLeftDown', mouseLeftDown ? 1 : 0);
+        safeSetParam('ParamMouseRightDown', mouseRightDown ? 1 : 0);
+
+        // L-104: 手柄专有参数 (gamepad 模式)
+        safeSetParam('CatParamStickLX', stickLX);
+        safeSetParam('CatParamStickLY', stickLY);
+        safeSetParam('CatParamStickRX', stickRX);
+        safeSetParam('CatParamStickRY', stickRY);
+        safeSetParam('CatParamStickShowLeftHand', stickShowLeft ? 1 : 0);
+        safeSetParam('CatParamStickShowRightHand', stickShowRight ? 1 : 0);
+        safeSetParam('CatParamStickLeftDown', stickLeftDown ? 1 : 0);
+        safeSetParam('CatParamStickRightDown', stickRightDown ? 1 : 0);
+
+        requestAnimationFrame(updateLoop);
+    }
+
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    // === L-104: 自动眨眼状态机 ===
+    // 阶段: open(等待) -> closing(80ms) -> closed(60ms) -> opening(120ms) -> open
+    function updateBlink(now) {
+        switch (blinkState) {
+            case 'open':
+                eyeOpenValue = 1.0;
+                if (now >= blinkNextTime) {
+                    blinkState = 'closing';
+                    blinkStateTime = now;
+                }
+                break;
+            case 'closing':
+                var ct = (now - blinkStateTime) / 80;
+                if (ct >= 1) {
+                    eyeOpenValue = 0.0;
+                    blinkState = 'closed';
+                    blinkStateTime = now;
+                } else {
+                    // ease-in
+                    eyeOpenValue = 1.0 - ct * ct;
+                }
+                break;
+            case 'closed':
+                eyeOpenValue = 0.0;
+                if (now - blinkStateTime >= 60) {
+                    blinkState = 'opening';
+                    blinkStateTime = now;
+                }
+                break;
+            case 'opening':
+                var ot = (now - blinkStateTime) / 120;
+                if (ot >= 1) {
+                    eyeOpenValue = 1.0;
+                    blinkState = 'open';
+                    blinkNextTime = now + BLINK_INTERVAL_MIN + Math.random() * (BLINK_INTERVAL_MAX - BLINK_INTERVAL_MIN);
+                } else {
+                    // ease-out
+                    eyeOpenValue = ot * (2 - ot);
+                }
+                break;
+        }
+    }
+
+    // =============================================
+    // === C++/JS 桥接: 使用 document.title 作为 JS -> C++ 事件通道
+    // Qt WebView (WebView2 后端) 不支持 QWebChannel 的 webChannelTransport,
+    // 因此通过设置 document.title 触发 QML WebView 的 titleChanged 信号,
+    // C++ 端在槽函数中解析 title 内容。消息格式为 JSON:
+    //   { "event": "ready" | "modelLoaded" | "error", ... }
+    // 为避免与页面真实 title 冲突, 统一使用 "__bongocat__:" 前缀。
+    // C++ -> JS 方向直接通过 runJavaScript 调用 window.Live2DAPI.* 即可。
+    function notifyCpp(eventName, payload) {
+        try {
+            var msg = { event: eventName };
+            if (payload !== undefined) msg.data = payload;
+            // 每次赋值都会触发 titleChanged, 即便值相同也强制更新
+            document.title = '__bongocat__:' + JSON.stringify(msg) + ':' + Date.now();
+        } catch (e) {
+            console.warn('notifyCpp failed:', e);
+        }
+    }
+
+    function notifyBackendReady() {
+        isInitialized = true;
+        console.log('[Bridge] notifying C++: ready');
+        notifyCpp('ready');
+    }
+
+    function notifyModelLoaded(modelInfo) {
+        notifyCpp('modelLoaded', modelInfo);
+    }
+
+    function notifyError(errMsg) {
+        notifyCpp('error', { message: errMsg });
+    }
+
+    function startBridge() {
+        // Live2DAPI 在脚本末尾定义, 这里稍微等待一下确保对象已挂载
+        var tries = 0;
+        var t = setInterval(function() {
+            tries++;
+            if (window.Live2DAPI && typeof window.Live2DAPI.loadModel === 'function') {
+                clearInterval(t);
+                notifyBackendReady();
+            } else if (tries > 200) {
+                clearInterval(t);
+                console.error('[Bridge] Live2DAPI not ready after 10s');
+            }
+        }, 50);
+    }
+
+    // =============================================
+    // === 启动更新循环 ===
+    requestAnimationFrame(updateLoop);
+
+    // =============================================
+    // === 暴露给 C++ 的全局 API ===
     window.Live2DAPI = {
+        // 按键图注册表: { "KeyA": "file:///.../KeyA.png", ... }
+        // C++ 通过 setKeyImage(keyName, path) 注册，按下时自动显示
+        _keyImages: {},
+
         loadModel: loadModel,
         setParameter: setParameter,
         playMotion: playMotion,
@@ -332,23 +795,33 @@
         handleMouseMove: handleMouseMove,
         handleMouseDown: handleMouseDown,
         handleMouseUp: handleMouseUp,
+        handleGamepadAxis: handleGamepadAxis,
+        handleGamepadButtonDown: handleGamepadButtonDown,
+        handleGamepadButtonUp: handleGamepadButtonUp,
         resetParameters: resetParameters,
+        setAutoReleaseDelay: setAutoReleaseDelay,
+        setBackground: setBackground,
+        setKeyImage: function(keyName, url) {
+            // 兼容旧 API: 立即显示按键图 (不推荐)
+            if (url) { this._keyImages[keyName] = url; setKeyImage(keyName, url); }
+            else { delete this._keyImages[keyName]; clearKeyImage(keyName); }
+        },
+        clearKeyImage: clearKeyImage,
+        clearAllKeyImages: function() {
+            this._keyImages = {};
+            clearAllKeyImages();
+        },
         getParameterRange: getParameterRange,
         getAvailableMotions: getAvailableMotions,
         getAvailableExpressions: getAvailableExpressions,
+        getMode: function() { return currentMode; },
         destroy: function() {
-            if (model) {
-                model.destroy();
-                model = null;
-            }
-            if (app) {
-                app.destroy(true);
-                app = null;
-            }
+            if (model) { try { model.destroy(); } catch(e){} model = null; }
+            if (app) { try { app.destroy(true); } catch(e){} app = null; }
         }
     };
 
-    console.log('Live2D engine initialized');
+    console.log('[BongoCat Live2D] window.Live2DAPI ready (waiting for pixi & core)');
     </script>
 </body>
 </html>

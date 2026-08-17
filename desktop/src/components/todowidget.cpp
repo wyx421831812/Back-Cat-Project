@@ -15,6 +15,8 @@
 #include <QAction>
 #include <QInputDialog>
 #include <QDateTime>
+#include <QDebug>
+#include <QMetaObject>
 #include "appconfig.h"
 
 TodoWidget::TodoWidget(QWidget *parent)
@@ -138,6 +140,7 @@ void TodoWidget::loadTodos()
     QFile file(path + "/backpet_todos.json");
 
     if (!file.open(QFile::ReadOnly)) {
+        qDebug() << "[TodoWidget] no saved todos found at" << path;
         m_allTodos = QJsonArray();
         applyFilter();
         return;
@@ -147,17 +150,24 @@ void TodoWidget::loadTodos()
     file.close();
 
     m_allTodos = doc.isArray() ? doc.array() : QJsonArray();
+    qDebug() << "[TodoWidget] loadTodos: loaded" << m_allTodos.size()
+             << "todos from" << path;
 
     // 为缺少 id 的旧数据补上唯一 id（向后兼容）
     bool needSave = false;
     qint64 baseId = QDateTime::currentMSecsSinceEpoch();
+    int assigned = 0;
     for (int i = 0; i < m_allTodos.size(); ++i) {
         QJsonObject obj = m_allTodos[i].toObject();
         if (obj["id"].toString().isEmpty()) {
             obj["id"] = QString::number(baseId + i);
             m_allTodos[i] = obj;
             needSave = true;
+            assigned++;
         }
+    }
+    if (assigned > 0) {
+        qDebug() << "[TodoWidget] assigned IDs to" << assigned << "legacy todos";
     }
     if (needSave) saveTodos();
 
@@ -168,6 +178,9 @@ void TodoWidget::applyFilter()
 {
     QSignalBlocker blocker(m_listWidget);
     m_listWidget->clear();
+
+    qDebug() << "[TodoWidget] applyFilter: total todos=" << m_allTodos.size()
+             << "filterMode=" << m_filterMode;
 
     for (const QJsonValue &val : m_allTodos) {
         QJsonObject obj = val.toObject();
@@ -199,11 +212,17 @@ void TodoWidget::applyFilter()
 void TodoWidget::saveTodos()
 {
     QString path = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+    QDir().mkpath(path);
     QFile file(path + "/backpet_todos.json");
-    if (file.open(QFile::WriteOnly)) {
-        file.write(QJsonDocument(m_allTodos).toJson());
-        file.close();
+    if (!file.open(QFile::WriteOnly)) {
+        qWarning() << "[TodoWidget] failed to save todos to" << path;
+        return;
     }
+    QByteArray data = QJsonDocument(m_allTodos).toJson();
+    file.write(data);
+    file.close();
+    qDebug() << "[TodoWidget] saveTodos: wrote" << m_allTodos.size()
+             << "todos to" << path;
 }
 
 void TodoWidget::onAdd()
@@ -217,6 +236,9 @@ void TodoWidget::onAdd()
     obj["done"] = false;
     m_allTodos.append(obj);
 
+    qDebug() << "[TodoWidget] onAdd: id=" << obj["id"].toString()
+             << "text=" << text;
+
     m_inputEdit->clear();
     saveTodos();
     applyFilter();
@@ -224,23 +246,48 @@ void TodoWidget::onAdd()
 
 void TodoWidget::onItemChanged(QListWidgetItem *item)
 {
+    if (!item) {
+        qWarning() << "[TodoWidget] onItemChanged called with null item!";
+        return;
+    }
+
     QFont f = item->font();
     bool done = (item->checkState() == Qt::Checked);
     f.setStrikeOut(done);
     item->setFont(f);
 
     QString targetId = item->data(Qt::UserRole).toString();
+    qDebug() << "[TodoWidget] onItemChanged: id=" << targetId
+             << "done=" << done << "text=" << item->text();
+
+    if (targetId.isEmpty()) {
+        qWarning() << "[TodoWidget] item has no UserRole id, skipping data update";
+        return;
+    }
+
     // 通过唯一 id 精确匹配对应项并更新
+    bool found = false;
     for (int i = 0; i < m_allTodos.size(); ++i) {
         QJsonObject obj = m_allTodos[i].toObject();
         if (obj["id"].toString() == targetId) {
             obj["done"] = done;
             m_allTodos[i] = obj;
+            found = true;
             break;
         }
     }
+
+    if (!found) {
+        qWarning() << "[TodoWidget] no matching todo found for id=" << targetId;
+        return;
+    }
+
     saveTodos();
-    applyFilter();
+
+    // 延迟刷新列表，避免在信号处理中删除触发信号的 item（use-after-free）
+    QMetaObject::invokeMethod(this, [this]() {
+        applyFilter();
+    }, Qt::QueuedConnection);
 }
 
 void TodoWidget::onItemContextMenu(const QPoint &pos)
@@ -287,7 +334,10 @@ void TodoWidget::onEditItem()
     if (!ok || newText.trimmed().isEmpty()) return;
     newText = newText.trimmed();
 
+    QString oldText = item->text();
     QString targetId = item->data(Qt::UserRole).toString();
+    qDebug() << "[TodoWidget] onEditItem: id=" << targetId
+             << "oldText=" << oldText << "newText=" << newText;
 
     // 更新视图项
     {
@@ -314,17 +364,36 @@ void TodoWidget::onDeleteItem()
     if (!item) return;
 
     QString targetId = item->data(Qt::UserRole).toString();
+    qDebug() << "[TodoWidget] onDeleteItem: id=" << targetId
+             << "text=" << item->text();
+
+    if (targetId.isEmpty()) {
+        qWarning() << "[TodoWidget] item has no UserRole id, skipping delete";
+        return;
+    }
 
     // 从 m_allTodos 中删除对应项
+    bool found = false;
     for (int i = 0; i < m_allTodos.size(); ++i) {
         QJsonObject obj = m_allTodos[i].toObject();
         if (obj["id"].toString() == targetId) {
             m_allTodos.removeAt(i);
+            found = true;
             break;
         }
     }
+
+    if (!found) {
+        qWarning() << "[TodoWidget] no matching todo found for id=" << targetId;
+        return;
+    }
+
     saveTodos();
-    applyFilter();
+
+    // 延迟刷新列表，避免在信号处理中删除 item
+    QMetaObject::invokeMethod(this, [this]() {
+        applyFilter();
+    }, Qt::QueuedConnection);
 }
 
 void TodoWidget::onFilterChanged(int index)

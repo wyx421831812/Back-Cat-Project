@@ -39,6 +39,7 @@ struct BongoModel {
     QString id;
     QString name;
     QString path;
+    QString mode; // "standard" | "keyboard" | "gamepad" (对齐 BongoCat ModelMode)
 
     // 核心图片
     QPixmap coverImage;       // 猫咪底图
@@ -56,7 +57,7 @@ struct BongoModel {
     bool isPreset = false;
 
     bool isValid() const {
-        return !coverImage.isNull();
+        return !coverImage.isNull() || isPreset || !keyImages.isEmpty();
     }
 
     // 获取按键图片(优先从keyImages查找)

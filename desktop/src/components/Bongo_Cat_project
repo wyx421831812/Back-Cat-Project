@@ -1,0 +1,30 @@
+BongoCat/
+├── src/                      # Vue 前端
+│   ├── pages/                # 路由页面（main 主窗口、preference 偏好设置）
+│   ├── components/           # 通用组件（pro-list、shortcut、update-app）
+│   ├── composables/          # 组合式逻辑（useDevice、useGamepad、useKeyPress、useModel、useTray...）
+│   ├── stores/               # Pinia stores（app/cat/general/model/shortcut）
+│   ├── router/               # Vue Router 配置
+│   ├── locales/              # 多语言
+│   ├── plugins/              # 封装 Tauri 自定义插件的前端 API（adminStatus、window）
+│   ├── utils/                # 工具（live2d、keyboard、monitor、platform...）
+│   └── App.vue / main.ts     # 入口
+│
+├── src-tauri/                # Rust + Tauri 后端
+│   ├── src/
+│   │   ├── main.rs / lib.rs  # Tauri Builder 入口，注册所有插件与命令
+│   │   ├── core/
+│   │   │   ├── device.rs     # rdev 监听键鼠
+│   │   │   ├── gamepad.rs    # gilrs 监听手柄
+│   │   │   ├── prevent_default.rs
+│   │   │   └── setup/        # 平台相关初始化（macos.rs / common.rs）
+│   │   ├── plugins/          # 自定义 Tauri 插件
+│   │   │   ├── admin-status/ # 管理员权限检测
+│   │   │   └── window/       # 自定义窗口能力（按平台分 macos/windows/linux）
+│   │   └── utils/fs_extra.rs
+│   ├── assets/models/        # 内置 Live2D 模型（standard/keyboard/gamepad 三套）
+│   ├── capabilities/         # Tauri v2 权限配置
+│   ├── tauri.conf.json       # 主配置（窗口、CSP、bundle、updater）
+│   └── tauri.{linux,macos,windows}.conf.json  # 平台差异化配置
+│
+└── scripts/                  # 构建辅助脚本（buildIcon.ts、release.ts）
