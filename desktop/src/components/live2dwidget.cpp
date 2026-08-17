@@ -4,9 +4,47 @@
 #include <QFile>
 #include <QCoreApplication>
 #include <QDir>
-#include <QQuickItem>
 #include <QJsonDocument>
 #include <QJsonObject>
+#if defined(USE_QT_WEBENGINE)
+#include <QWebEngineSettings>
+#include <QWebEnginePage>
+#elif defined(USE_QT_WEBVIEW)
+#include <QQuickItem>
+#endif
+
+#if defined(USE_QT_WEBENGINE)
+// QWebEnginePage 子类: 将 JS console.log/warn/error 转发到 Qt 日志
+// (javaScriptConsoleMessage 是 protected 虚函数，必须重写才能拦截)
+class ConsoleLoggingPage : public QWebEnginePage
+{
+public:
+    explicit ConsoleLoggingPage(QObject *parent = nullptr)
+        : QWebEnginePage(parent) {}
+
+protected:
+    void javaScriptConsoleMessage(JavaScriptConsoleMessageLevel level,
+                                  const QString &message,
+                                  int lineNumber,
+                                  const QString &sourceID) override
+    {
+        const QString src = sourceID.isEmpty()
+            ? QString()
+            : QStringLiteral(" (%1:%2)").arg(sourceID).arg(lineNumber);
+        switch (level) {
+        case InfoMessageLevel:
+            qDebug().noquote() << "[JS]" << message << src;
+            break;
+        case WarningMessageLevel:
+            qWarning().noquote() << "[JS WARN]" << message << src;
+            break;
+        case ErrorMessageLevel:
+            qWarning().noquote() << "[JS ERROR]" << message << src;
+            break;
+        }
+    }
+};
+#endif
 
 // JS 通过 document.title 发送的事件前缀, 格式:
 //   "__bongocat__:<json-payload>:<timestamp>"
@@ -22,27 +60,76 @@ Live2DWidget::Live2DWidget(QWidget *parent)
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
 
-    // 创建 QQuickWidget 加载 QML WebView
+#if defined(USE_QT_WEBENGINE)
+    // MSVC/Windows: 使用 QWebEngineView
+    m_webView = new QWebEngineView(this);
+    m_webView->setStyleSheet("background: transparent;");
+    m_webView->setAttribute(Qt::WA_TranslucentBackground);
+    m_webView->setAutoFillBackground(false);
+    QPalette pal = m_webView->palette();
+    pal.setBrush(QPalette::Base, Qt::transparent);
+    m_webView->setPalette(pal);
+
+    // 启用透明背景和必要的设置
+    QWebEngineSettings *settings = m_webView->settings();
+    settings->setAttribute(QWebEngineSettings::ShowScrollBars, false);
+    settings->setAttribute(QWebEngineSettings::JavascriptEnabled, true);
+    settings->setAttribute(QWebEngineSettings::LocalContentCanAccessRemoteUrls, true);
+    settings->setAttribute(QWebEngineSettings::LocalContentCanAccessFileUrls, true);
+    settings->setAttribute(QWebEngineSettings::AllowRunningInsecureContent, true);
+
+    // 设置页面背景透明，并使用自定义 Page 转发 JS console 消息
+    m_webView->setPage(new ConsoleLoggingPage(m_webView));
+    m_webView->page()->setBackgroundColor(Qt::transparent);
+
+    layout->addWidget(m_webView);
+
+    // 监听 JS 通过 document.title 发出的事件
+    connect(m_webView, &QWebEngineView::titleChanged,
+            this, &Live2DWidget::onWebViewTitleChanged);
+
+    // 页面加载完成后注入 HTML
+    connect(m_webView, &QWebEngineView::loadFinished, this, [this](bool ok) {
+        if (ok) {
+            qDebug() << "Live2D WebEngine page loaded";
+        } else {
+            qWarning() << "Live2D WebEngine page failed to load";
+        }
+    });
+
+    // 直接 setHtml 加载完整页面（不要先 load about:blank，否则会产生竞争）
+    loadCombinedHtml();
+
+#elif defined(USE_QT_WEBVIEW)
+    // MinGW: 使用 QQuickWidget 加载 QML WebView
     m_quickWidget = new QQuickWidget(this);
     m_quickWidget->setStyleSheet("background: transparent;");
     m_quickWidget->setAttribute(Qt::WA_TranslucentBackground);
     m_quickWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
 
-    m_quickWidget->setSource(QUrl("qrc:/live2d-webview.qml"));
+    m_quickWidget->setSource(QUrl("qrc:/resources/live2d-webview.qml"));
 
     layout->addWidget(m_quickWidget);
 
     connect(m_quickWidget, &QQuickWidget::statusChanged,
             this, &Live2DWidget::onQuickWidgetStatusChanged);
+#endif
 }
 
 Live2DWidget::~Live2DWidget()
 {
+#if defined(USE_QT_WEBENGINE)
     if (m_webView) {
         runJavaScript("if(window.Live2DAPI) window.Live2DAPI.destroy();");
     }
+#elif defined(USE_QT_WEBVIEW)
+    if (m_webViewObj) {
+        runJavaScript("if(window.Live2DAPI) window.Live2DAPI.destroy();");
+    }
+#endif
 }
 
+#if defined(USE_QT_WEBVIEW)
 void Live2DWidget::onQuickWidgetStatusChanged(QQuickWidget::Status status)
 {
     if (status == QQuickWidget::Ready) {
@@ -50,12 +137,12 @@ void Live2DWidget::onQuickWidgetStatusChanged(QQuickWidget::Status status)
 
         QObject *rootObj = m_quickWidget->rootObject();
         if (rootObj) {
-            m_webView = rootObj->findChild<QObject*>("live2dWebView");
-            if (m_webView) {
+            m_webViewObj = rootObj->findChild<QObject*>("live2dWebView");
+            if (m_webViewObj) {
                 qDebug() << "Found QML WebView object";
 
                 // 监听 JS 通过 document.title 发出的事件
-                connect(m_webView, SIGNAL(titleChanged(QString)),
+                connect(m_webViewObj, SIGNAL(titleChanged(QString)),
                         this, SLOT(onWebViewTitleChanged(QString)));
 
                 // 加载合并后的 HTML
@@ -68,6 +155,7 @@ void Live2DWidget::onQuickWidgetStatusChanged(QQuickWidget::Status status)
         qWarning() << "Live2D QML failed to load";
     }
 }
+#endif
 
 void Live2DWidget::onWebViewTitleChanged(const QString &title)
 {
@@ -129,9 +217,7 @@ void Live2DWidget::setReady(bool ready)
 
 void Live2DWidget::loadCombinedHtml()
 {
-    if (!m_webView) return;
-
-    QFile htmlFile(":/live2d-view.html");
+    QFile htmlFile(":/resources/live2d-view.html");
     if (!htmlFile.open(QIODevice::ReadOnly)) {
         qWarning() << "Failed to load live2d-view.html from resources";
         return;
@@ -148,7 +234,6 @@ void Live2DWidget::loadCombinedHtml()
     };
 
     // 按依赖顺序内联: pixi.js -> pixi-live2d-display.js -> live2d.min.js -> live2dcubismcore.min.js
-    // 不再需要 qwebchannel.js (Qt WebView/WebView2 不支持)
     QStringList inlineScripts;
     inlineScripts << "<script>" << readJs(":/resources/js/pixi.min.js") << "</script>";
     inlineScripts << "<script>" << readJs(":/resources/js/pixi-live2d-display.js") << "</script>";
@@ -159,14 +244,21 @@ void Live2DWidget::loadCombinedHtml()
     html.replace("/*__INLINE_SCRIPTS__*/", allScripts);
 
     // baseUrl 使用本地 HTTP 服务器, 确保页面 origin 为 http://127.0.0.1,
-    // 避免 WebView2 因 origin=null 或 qrc:/ 导致的 CORS 限制
+    // 避免因 origin=null 或 qrc:/ 导致的 CORS 限制
     quint16 port = LocalFileServer::instance()->port();
     QUrl baseUrl(QStringLiteral("http://127.0.0.1:%1/").arg(port));
-    QMetaObject::invokeMethod(m_webView, "loadHtml",
+
+#if defined(USE_QT_WEBENGINE)
+    // WebEngine 直接使用 setHtml
+    m_webView->setHtml(html, baseUrl);
+#elif defined(USE_QT_WEBVIEW)
+    if (!m_webViewObj) return;
+    QMetaObject::invokeMethod(m_webViewObj, "loadHtml",
                               Q_ARG(QString, html),
                               Q_ARG(QUrl, baseUrl));
+#endif
 
-    qDebug() << "Combined HTML with inline JS loaded into WebView ("
+    qDebug() << "Combined HTML with inline JS loaded ("
              << allScripts.size() << "bytes of JS)";
 }
 
@@ -409,13 +501,20 @@ void Live2DWidget::clearAllKeyImages()
 
 void Live2DWidget::runJavaScript(const QString &code)
 {
+#if defined(USE_QT_WEBENGINE)
     if (!m_webView) {
+        qWarning() << "Cannot run JavaScript: WebEngine view not available";
+        return;
+    }
+    m_webView->page()->runJavaScript(code);
+#elif defined(USE_QT_WEBVIEW)
+    if (!m_webViewObj) {
         qWarning() << "Cannot run JavaScript: WebView not available";
         return;
     }
 
     bool ok = QMetaObject::invokeMethod(
-        m_webView,
+        m_webViewObj,
         "runJavaScript",
         Qt::QueuedConnection,
         Q_ARG(QString, code)
@@ -424,4 +523,5 @@ void Live2DWidget::runJavaScript(const QString &code)
     if (!ok) {
         qWarning() << "Failed to invoke runJavaScript on WebView";
     }
+#endif
 }

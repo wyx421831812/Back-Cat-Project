@@ -2,23 +2,27 @@
 #define LIVE2DWIDGET_H
 
 #include <QWidget>
-#include <QQuickWidget>
 #include <QUrl>
 #include <QJsonObject>
 #include <QString>
 
+#if defined(USE_QT_WEBENGINE)
+#include <QWebEngineView>
+#elif defined(USE_QT_WEBVIEW)
+#include <QQuickWidget>
+#endif
+
 /**
  * @brief Live2D 模型渲染窗口
  *
- * 使用 QQuickWidget + Qt WebView (QML) + pixi.js + pixi-live2d-display 渲染 Live2D 模型
+ * 支持两种后端:
+ *  - USE_QT_WEBENGINE: QWebEngineView (MSVC/Windows, 完整 C++ 集成)
+ *  - USE_QT_WEBVIEW:   QQuickWidget + QML QtWebView (MinGW 兼容)
  *
  * 通信机制:
- *  - C++ -> JS: 通过 QML WebView 的 runJavaScript() 调用 window.Live2DAPI.*
+ *  - C++ -> JS: runJavaScript()
  *  - JS  -> C++: 通过 document.title = "__bongocat__:<json>:<ts>" 触发
- *                QML WebView 的 titleChanged 信号, 在 onWebViewTitleChanged() 中解析
- *
- *  注意: Qt WebView (Windows WebView2 后端) 不支持 QWebChannel 的 webChannelTransport,
- *        因此不能使用 QWebChannel 方案。
+ *                titleChanged 信号, 在 onWebViewTitleChanged() 中解析
  */
 class Live2DWidget : public QWidget
 {
@@ -72,7 +76,9 @@ signals:
     void readyChanged(bool ready);
 
 private slots:
+#if defined(USE_QT_WEBVIEW)
     void onQuickWidgetStatusChanged(QQuickWidget::Status status);
+#endif
     void onWebViewTitleChanged(const QString &title);
 
 private:
@@ -81,8 +87,12 @@ private:
     void handleJsEvent(const QString &eventName, const QJsonObject &data);
     void setReady(bool ready);
 
+#if defined(USE_QT_WEBENGINE)
+    QWebEngineView *m_webView = nullptr;
+#elif defined(USE_QT_WEBVIEW)
     QQuickWidget *m_quickWidget = nullptr;
-    QObject *m_webView = nullptr;  // QML WebView object (from live2d-webview.qml)
+    QObject *m_webViewObj = nullptr;  // QML WebView object (from live2d-webview.qml)
+#endif
 
     bool m_ready = false;
     QString m_currentModelPath;

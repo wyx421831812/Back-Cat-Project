@@ -103,22 +103,43 @@
         if (!model) { paramExists[id] = false; return false; }
         try {
             var v = model.getParameterValueById(id);
-            paramExists[id] = (typeof v === 'number');
-        } catch (e) { paramExists[id] = false; }
-        return paramExists[id];
+            if (typeof v === 'number') { paramExists[id] = true; return true; }
+        } catch (e) {}
+        // 备选: 通过 internalModel 检查参数是否存在
+        try {
+            if (model.internalModel) {
+                var idx = model.internalModel.getParameterIndex(id);
+                if (idx >= 0) { paramExists[id] = true; return true; }
+            }
+        } catch (e2) {}
+        paramExists[id] = false;
+        return false;
     }
     function safeSetParam(id, value) {
-        if (!paramExists[id]) return;
-        try { model.setParameterValueById(id, value); } catch (e) {}
+        if (!hasParam(id)) return;
+        try { model.setParameterValueById(id, value); } catch (e) { console.warn('[Live2D] setParam failed:', id, e); }
     }
     // 获取参数范围 [min, max]，不存在或无范围返回 null
+    // 注意: Live2DModel 包装类没有 getParameterValueRangeById，
+    // 需要从 internalModel（CubismModel）通过 index 获取 max/min
     function getParamRange(id) {
-        if (!model) return null;
+        if (!model || !model.internalModel) return null;
         try {
-            var r = model.getParameterValueRangeById(id);
-            if (r && typeof r.min === 'number' && typeof r.max === 'number') return r;
+            var im = model.internalModel;
+            var idx = im.getParameterIndex(id);
+            if (idx < 0) return null;
+            var min = im.getParameterMinimumValue(idx);
+            var max = im.getParameterMaximumValue(idx);
+            if (typeof min === 'number' && typeof max === 'number') {
+                return { min: min, max: max };
+            }
         } catch (e) {}
         return null;
+    }
+
+    // getParameterRange 与 getParamRange 是同一函数的两个别名（供 Live2DAPI 暴露）
+    function getParameterRange(id) {
+        return getParamRange(id);
     }
 
     // ==================================================
@@ -259,6 +280,17 @@
             app.stage.addChild(model);
             resetParameters();
 
+            // 调试: 打印关键参数的存在性和范围信息
+            var debugParams = ['CatParamLeftHandDown', 'CatParamRightHandDown', 'ParamMouseLeftDown', 'ParamMouseRightDown', 'ParamMouseX', 'ParamMouseY', 'ParamAngleX', 'ParamAngleY', 'ParamEyeBallX', 'ParamEyeBallY'];
+            for (var di = 0; di < debugParams.length; di++) {
+                var pid = debugParams[di];
+                var exists = hasParam(pid);
+                var range = getParamRange(pid);
+                var val = 'N/A';
+                try { val = model.getParameterValueById(pid); } catch (e) {}
+                console.log('[ModelDebug]', pid, 'exists:', exists, 'range:', range ? ('[' + range.min + ', ' + range.max + ']') : 'null', 'val:', val);
+            }
+
             if (notifyModelLoaded) {
                 var modelInfo = {
                     width: model.width || 0,
@@ -380,12 +412,24 @@
     // =============================================
     // === L-105: 手部延时控制 ===
     function setLeftHand(down) {
-        if (down) { leftHandDown = true; leftHandPendingRelease = false; }
-        else { leftHandPendingRelease = true; leftHandReleaseTime = performance.now(); }
+        if (down) {
+            if (!leftHandDown) console.log('[Hand] leftHand: down');
+            leftHandDown = true; leftHandPendingRelease = false;
+        }
+        else {
+            if (leftHandDown) console.log('[Hand] leftHand: up (pending release)');
+            leftHandPendingRelease = true; leftHandReleaseTime = performance.now();
+        }
     }
     function setRightHand(down) {
-        if (down) { rightHandDown = true; rightHandPendingRelease = false; }
-        else { rightHandPendingRelease = true; rightHandReleaseTime = performance.now(); }
+        if (down) {
+            if (!rightHandDown) console.log('[Hand] rightHand: down');
+            rightHandDown = true; rightHandPendingRelease = false;
+        }
+        else {
+            if (rightHandDown) console.log('[Hand] rightHand: up (pending release)');
+            rightHandPendingRelease = true; rightHandReleaseTime = performance.now();
+        }
     }
     function setAutoReleaseDelay(ms) {
         autoReleaseDelay = Math.max(0, ms | 0);
@@ -443,10 +487,10 @@
     }
 
     // =============================================
-    // === L-101: 鼠标驱动眼球 / 头部 (参考 BongoCat useModel.ts handleMouseMove) ===
+    // === L-101: 鼠标驱动眼球 / 头部 ===
     // C++ 传入的 nx, ny ∈ [-1, 1] (屏幕中心为 0, 右下角为 1),
     // 我们将其转到 [0, 1] 比例，再按各参数自身的 min/max 范围线性映射，
-    // 与官方算法 max - ratio*(max-min) 保持一致，保证角度方向正确。
+    // 公式: value = min + ratio * (max - min)，使参数值随鼠标方向正确变化
     function handleMouseMove(nx, ny) {
         if (!model) return;
         targetMouseXRatio = Math.max(0, Math.min(1, nx * 0.5 + 0.5));
@@ -569,9 +613,11 @@
 
         // === L-105: 延时释放 (键盘/鼠标点击触发的手部状态在 autoReleaseDelay 后自动抬起) ===
         if (leftHandPendingRelease && now - leftHandReleaseTime >= autoReleaseDelay) {
+            if (leftHandDown) console.log('[Hand] leftHand: auto-release');
             leftHandDown = false; leftHandPendingRelease = false;
         }
         if (rightHandPendingRelease && now - rightHandReleaseTime >= autoReleaseDelay) {
+            if (rightHandDown) console.log('[Hand] rightHand: auto-release');
             rightHandDown = false; rightHandPendingRelease = false;
         }
 
@@ -589,13 +635,13 @@
         var eyeRatioX = currentMouseXRatio + stickRX * 0.5;
         var eyeRatioY = currentMouseYRatio + stickRY * 0.5;
 
-        // === L-101: 按参数 min/max 映射 (与 BongoCat useModel.handleMouseMove 一致) ===
-        // X/Y 轴: value = max - ratio * (max - min)
+        // === L-101: 按参数 min/max 映射 ===
+        // X/Y 轴: value = min + ratio * (max - min)
         // Z 轴:    value = (1-2*xRatio) * (1-2*yRatio) * min
         function mapAxis(id, ratio) {
             var r = getParamRange(id);
             if (!r) return null;
-            return r.max - ratio * (r.max - r.min);
+            return r.min + ratio * (r.max - r.min);
         }
         function mapZAxis(id, xRatio, yRatio) {
             var r = getParamRange(id);
@@ -664,20 +710,29 @@
         if (hasParam('ParamEyeROpen')) safeSetParam('ParamEyeROpen', eyeOpenValue);
 
         // L-102/L-103: 手部/鼠标按下状态 (官方参数名)
-        safeSetParam('CatParamLeftHandDown', leftHandDown ? 1 : 0);
-        safeSetParam('CatParamRightHandDown', rightHandDown ? 1 : 0);
-        safeSetParam('ParamMouseLeftDown', mouseLeftDown ? 1 : 0);
-        safeSetParam('ParamMouseRightDown', mouseRightDown ? 1 : 0);
+        // 使用参数真实范围设置值，兼容不同模型的参数范围差异
+        var lhRange = getParamRange('CatParamLeftHandDown');
+        var rhRange = getParamRange('CatParamRightHandDown');
+        var mlRange = getParamRange('ParamMouseLeftDown');
+        var mrRange = getParamRange('ParamMouseRightDown');
+        safeSetParam('CatParamLeftHandDown', leftHandDown ? (lhRange ? lhRange.max : 1) : (lhRange ? lhRange.min : 0));
+        safeSetParam('CatParamRightHandDown', rightHandDown ? (rhRange ? rhRange.max : 1) : (rhRange ? rhRange.min : 0));
+        safeSetParam('ParamMouseLeftDown', mouseLeftDown ? (mlRange ? mlRange.max : 1) : (mlRange ? mlRange.min : 0));
+        safeSetParam('ParamMouseRightDown', mouseRightDown ? (mrRange ? mrRange.max : 1) : (mrRange ? mrRange.min : 0));
 
         // L-104: 手柄专有参数 (gamepad 模式)
         safeSetParam('CatParamStickLX', stickLX);
         safeSetParam('CatParamStickLY', stickLY);
         safeSetParam('CatParamStickRX', stickRX);
         safeSetParam('CatParamStickRY', stickRY);
-        safeSetParam('CatParamStickShowLeftHand', stickShowLeft ? 1 : 0);
-        safeSetParam('CatParamStickShowRightHand', stickShowRight ? 1 : 0);
-        safeSetParam('CatParamStickLeftDown', stickLeftDown ? 1 : 0);
-        safeSetParam('CatParamStickRightDown', stickRightDown ? 1 : 0);
+        var slhRange = getParamRange('CatParamStickShowLeftHand');
+        var srhRange = getParamRange('CatParamStickShowRightHand');
+        var sldRange = getParamRange('CatParamStickLeftDown');
+        var srdRange = getParamRange('CatParamStickRightDown');
+        safeSetParam('CatParamStickShowLeftHand', stickShowLeft ? (slhRange ? slhRange.max : 1) : (slhRange ? slhRange.min : 0));
+        safeSetParam('CatParamStickShowRightHand', stickShowRight ? (srhRange ? srhRange.max : 1) : (srhRange ? srhRange.min : 0));
+        safeSetParam('CatParamStickLeftDown', stickLeftDown ? (sldRange ? sldRange.max : 1) : (sldRange ? sldRange.min : 0));
+        safeSetParam('CatParamStickRightDown', stickRightDown ? (srdRange ? srdRange.max : 1) : (srdRange ? srdRange.min : 0));
 
         requestAnimationFrame(updateLoop);
     }

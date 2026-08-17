@@ -55,47 +55,67 @@ quint16 LocalFileServer::start()
     };
 #endif
 
-    // catchAll 路由: 所有 GET 请求都映射到本地文件
-    m_server->route("?", QHttpServerRequest::Method::Get,
-        [applyHeaders](const QHttpServerRequest &request) {
-            // request.url().path() 形如 "/D:/Workspace/.../file.json"
-            QString path = request.url().path();
-            // URL 解码 (处理中文路径等)
-            path = QUrl::fromPercentEncoding(path.toUtf8());
-            // 去掉前导 "/"
-            while (path.startsWith('/')) path = path.mid(1);
+    // 辅助函数：从请求中读取本地文件并返回响应
+    auto serveFile = [applyHeaders](const QHttpServerRequest &request) -> QHttpServerResponse {
+        QString path = request.url().path();
+        // URL 解码 (处理中文路径等)
+        path = QUrl::fromPercentEncoding(path.toUtf8());
+        // 去掉前导 "/"
+        while (path.startsWith('/')) path = path.mid(1);
 
-            if (path.isEmpty()) {
-                QHttpServerResponse resp("text/plain", "LocalFileServer: missing path",
-                                         QHttpServerResponse::StatusCode::BadRequest);
-                applyHeaders(resp);
-                return resp;
-            }
-
-            QFile file(path);
-            if (!file.open(QIODevice::ReadOnly)) {
-                qCWarning(lcFileServer) << "File not found:" << path;
-                QHttpServerResponse resp("text/plain", "File not found: " + path.toUtf8(),
-                                         QHttpServerResponse::StatusCode::NotFound);
-                applyHeaders(resp);
-                return resp;
-            }
-
-            QByteArray data = file.readAll();
-            QMimeDatabase mimeDb;
-            QByteArray contentType = mimeDb.mimeTypeForFile(path).name().toUtf8();
-
-            QHttpServerResponse resp(contentType, data);
+        if (path.isEmpty()) {
+            QHttpServerResponse resp("text/plain", "LocalFileServer: missing path",
+                                     QHttpServerResponse::StatusCode::BadRequest);
             applyHeaders(resp);
             return resp;
-        });
+        }
 
-    // OPTIONS 预检
-    m_server->route("?", QHttpServerRequest::Method::Options, [applyHeaders]() {
-        QHttpServerResponse resp("text/plain", QByteArray());
+        // 支持 qrc 资源: 路径以 "__qrc__/" 开头时从 Qt 资源系统读取
+        bool fromQrc = false;
+        QString qrcPath;
+        if (path.startsWith(QStringLiteral("__qrc__/"), Qt::CaseInsensitive)) {
+            fromQrc = true;
+            qrcPath = QStringLiteral(":/") + path.mid(8); // 去掉 "__qrc__/"
+        }
+
+        QFile file(fromQrc ? qrcPath : path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            qCWarning(lcFileServer) << "File not found:" << (fromQrc ? qrcPath : path);
+            QHttpServerResponse resp("text/plain",
+                                     QByteArray("File not found: ") + (fromQrc ? qrcPath.toUtf8() : path.toUtf8()),
+                                     QHttpServerResponse::StatusCode::NotFound);
+            applyHeaders(resp);
+            return resp;
+        }
+
+        QByteArray data = file.readAll();
+        QMimeDatabase mimeDb;
+        QByteArray contentType = mimeDb.mimeTypeForFile(
+            fromQrc ? qrcPath : path).name().toUtf8();
+
+        QHttpServerResponse resp(contentType, data);
         applyHeaders(resp);
         return resp;
-    });
+    };
+
+    // 使用 setMissingHandler 作为 catch-all，避免 route("?") 导致的
+    // QRegularExpression 无效模式警告，同时正确处理多级路径
+    m_server->setMissingHandler(
+        [applyHeaders, serveFile](const QHttpServerRequest &request,
+                                  QHttpServerResponder &&responder) {
+            if (request.method() == QHttpServerRequest::Method::Get) {
+                responder.sendResponse(serveFile(request));
+            } else if (request.method() == QHttpServerRequest::Method::Options) {
+                QHttpServerResponse resp("text/plain", QByteArray());
+                applyHeaders(resp);
+                responder.sendResponse(std::move(resp));
+            } else {
+                QHttpServerResponse resp("text/plain", "Method Not Allowed",
+                                         QHttpServerResponse::StatusCode::MethodNotAllowed);
+                applyHeaders(resp);
+                responder.sendResponse(std::move(resp));
+            }
+        });
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
     // Qt 6.8+: QHttpServer::listen() 被移除，必须 bind(QTcpServer*)
@@ -125,9 +145,20 @@ QString LocalFileServer::toUrl(const QString &localPath) const
 {
     if (localPath.isEmpty()) return QString();
 
-    // qrc 资源文件: 返回 qrc URL (JS 库已内联，模型纹理不会走 qrc)
+    // qrc 资源文件: 通过 HTTP 服务器提供（WebEngine/WebView 无法直接访问 qrc://）
+    // 路径前缀 "__qrc__/" 由 catchAll 路由识别并从 Qt 资源系统读取
     if (localPath.startsWith(":/") || localPath.startsWith("qrc:")) {
-        return localPath;
+        QString resPath = localPath;
+        // 去掉 "qrc:" 前缀，保留 "/"
+        if (resPath.startsWith(QStringLiteral("qrc:"), Qt::CaseInsensitive)) {
+            resPath = resPath.mid(4);
+        }
+        // 去掉开头的 ":" 或 "/"，统一成 "resources/..." 形式
+        while (resPath.startsWith(':') || resPath.startsWith('/')) {
+            resPath = resPath.mid(1);
+        }
+        return QStringLiteral("http://127.0.0.1:%1/__qrc__/%2")
+            .arg(m_port).arg(resPath);
     }
 
     // 文件系统路径 → HTTP URL

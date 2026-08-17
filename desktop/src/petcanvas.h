@@ -39,7 +39,7 @@ struct Sphere3D {
     QVector3D pos;      // 3D 位置
     QVector3D scale;    // 缩放 (非等比 -> 椭球)
     QColor color;       // 颜色
-    float rotation;     // 旋转角度
+    qreal rotation;     // 旋转角度
     QVector3D rotAxis;  // 旋转轴
 };
 

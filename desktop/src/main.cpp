@@ -1,6 +1,8 @@
 #include <QApplication>
 #include <QFile>
+#ifdef USE_QT_WEBVIEW
 #include <QtWebView>
+#endif
 #include "petwidget.h"
 #include "appconfig.h"
 #include "components/localfileserver.h"
@@ -12,8 +14,11 @@ int main(int argc, char *argv[])
         Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
     QApplication app(argc, argv);
 
+#ifdef USE_QT_WEBVIEW
     // 初始化 Qt WebView (Windows 上加载 WebView2 后端，必须在使用 WebView 前调用)
+    // WebEngine 路径下不需要此调用
     QtWebView::initialize();
+#endif
 
     // 启动本地文件服务器 (解决 WebView2 下 file:/// 被 CORS 阻止的问题)
     LocalFileServer::instance()->start();

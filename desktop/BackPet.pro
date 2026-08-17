@@ -10,19 +10,20 @@ QT += httpserver
 has_webengine = false
 has_webview = false
 
-# 检查WebEngine (MSVC only on Windows)
+# 检查WebEngine (MSVC only on Windows) - 必须同时有头文件和库
 exists($$[QT_INSTALL_HEADERS]/QtWebEngineWidgets/QWebEngineView) {
-    has_webengine = true
+    exists($$[QT_INSTALL_LIBS]/Qt6WebEngineWidgets.lib)|exists($$[QT_INSTALL_LIBS]/libQt6WebEngineWidgets.a) {
+        has_webengine = true
+    }
 }
 
-# 检查WebView (QML模块, MinGW兼容)
-# Qt WebView在Windows/MinGW下只有QML组件,无C++头文件
-# 所以检查库文件或QML模块目录
-exists($$[QT_INSTALL_LIBS]/libQt6WebView.a) {
-    has_webview = true
-}
-exists($$[QT_INSTALL_QML]/QtWebView) {
-    has_webview = true
+# 检查WebView (QML模块) - 必须同时有 QtQuickWidgets 头文件 (QQuickWidget) 和 WebView 库
+exists($$[QT_INSTALL_HEADERS]/QtQuickWidgets/QQuickWidget) {
+    exists($$[QT_INSTALL_HEADERS]/QtWebView/QtWebView) {
+        exists($$[QT_INSTALL_LIBS]/Qt6WebView.lib)|exists($$[QT_INSTALL_LIBS]/libQt6WebView.a) {
+            has_webview = true
+        }
+    }
 }
 
 # 优先使用WebEngine, 否则使用WebView
@@ -41,7 +42,7 @@ equals(has_webengine, true) {
     message("=== Live2D support: Qt WebView (QML) ENABLED ===")
 } else {
     message("=== Live2D support NOT available ===")
-    message("=== Install Qt WebEngine (MSVC) or Qt WebView via Maintenance Tool ===")
+    message("=== Install Qt WebEngine (MSVC) or Qt WebView + QtQuickWidgets via Maintenance Tool ===")
 }
 
 greaterThan(QT_MAJOR_VERSION, 5): QT += widgets
