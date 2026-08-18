@@ -1,0 +1,47 @@
+{
+  "Version": 3,
+  "Meta": {
+    "Duration": 4.0,
+    "Fps": 30.0,
+    "Loop": true,
+    "AreBeziersRestricted": true,
+    "CurveCount": 3,
+    "TotalSegmentCount": 10,
+    "TotalPointCount": 13,
+    "UserDataCount": 0,
+    "TotalUserDataSize": 0
+  },
+  "Curves": [
+    {
+      "Target": "Parameter",
+      "Id": "ParamTailSway",
+      "Segments": [
+        0, 0, 0,
+        1, 30, 0,
+        2, 0, 0,
+        3, -30, 0,
+        4, 0, 0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamHairFront",
+      "Segments": [
+        0, 0, 0,
+        1, 10, 0,
+        2, 0, 0,
+        3, 10, 0,
+        4, 0, 0
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Id": "ParamHairSide",
+      "Segments": [
+        0, 0, 0,
+        2, 8, 0,
+        4, 0, 0
+      ]
+    }
+  ]
+}
