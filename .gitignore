@@ -35,4 +35,8 @@ Thumbs.db
 *.log
 *.cache
 
+# ===== 模型工具临时目录 / 测试目录 =====
+desktop/resources/models/_modlens_tmp/
+desktop/test2/
+
 BongoCat-master/

@@ -81,6 +81,9 @@ private slots:
 #endif
     void onWebViewTitleChanged(const QString &title);
 
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+
 private:
     void runJavaScript(const QString &code);
     void loadCombinedHtml();

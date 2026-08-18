@@ -7,17 +7,21 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { width: 100%; height: 100%; overflow: hidden; }
+        /* 根元素必须显式透明，否则 Chromium 会渲染白色页面背景 */
+        html { background: transparent; }
         body { background: transparent; }
         #app {
             position: absolute; top: 0; left: 0;
             width: 100%; height: 100%;
             z-index: 2;
         }
-        /* 背景层 (在 canvas 之下) */
+        /* 背景层 (在 canvas 之下) - 与官方 BongoCat 一致用 HTML <img> 加载，
+           浏览器能正确处理 PNG 的透明通道 (PIXI sprite 会把 (255,255,255,0)
+           的透明像素按预乘alpha渲染成白色) */
         #bg-layer {
             position: absolute; top: 0; left: 0;
             width: 100%; height: 100%;
-            object-fit: fill;
+            object-fit: cover;
             z-index: 1;
             pointer-events: none;
             display: none;
@@ -98,36 +102,45 @@
 
     // === 模型参数存在性缓存 (避免每帧 try/catch) ===
     const paramExists = {};
+    // 注意: pixi-live2d-display 0.4 的参数读写 API (getParameterValueById /
+    // setParameterValueById / getParameterIndex / getParameterCount / min/max)
+    // 实际挂在 model.internalModel.coreModel (Cubism4CoreModel) 上:
+    //   Live2DModel → internalModel (Cubism4InternalModel) → coreModel (Cubism4CoreModel)
+    // internalModel 本身只有 coreModel / motionManager / eyeBlink 等，没有参数方法，
+    // 直接调用会抛 TypeError 被吞掉，导致所有参数动画(眼睛跟随/手部按下/眨眼/呼吸)失效。
+    function coreModel() {
+        return (model && model.internalModel) ? model.internalModel.coreModel : null;
+    }
     function hasParam(id) {
         if (id in paramExists) return paramExists[id];
-        if (!model) { paramExists[id] = false; return false; }
+        var im = coreModel();
+        if (!im) { paramExists[id] = false; return false; }
         try {
-            var v = model.getParameterValueById(id);
-            if (typeof v === 'number') { paramExists[id] = true; return true; }
-        } catch (e) {}
-        // 备选: 通过 internalModel 检查参数是否存在
-        try {
-            if (model.internalModel) {
-                var idx = model.internalModel.getParameterIndex(id);
-                if (idx >= 0) { paramExists[id] = true; return true; }
+            // 注意: pixi-live2d-display 的 getParameterIndex 对不存在的参数
+            // 返回"虚拟索引"(>= 真实参数个数)，永远不会返回负数，
+            // 因此必须与真实参数个数比较才是可靠的存在性判断
+            var idx = im.getParameterIndex(id);
+            if (idx >= 0 && idx < im.getParameterCount()) {
+                paramExists[id] = true;
+                return true;
             }
-        } catch (e2) {}
+        } catch (e) {}
         paramExists[id] = false;
         return false;
     }
     function safeSetParam(id, value) {
         if (!hasParam(id)) return;
-        try { model.setParameterValueById(id, value); } catch (e) { console.warn('[Live2D] setParam failed:', id, e); }
+        var im = coreModel();
+        if (!im) return;
+        try { im.setParameterValueById(id, value); } catch (e) { console.warn('[Live2D] setParam failed:', id, e); }
     }
     // 获取参数范围 [min, max]，不存在或无范围返回 null
-    // 注意: Live2DModel 包装类没有 getParameterValueRangeById，
-    // 需要从 internalModel（CubismModel）通过 index 获取 max/min
     function getParamRange(id) {
-        if (!model || !model.internalModel) return null;
+        var im = coreModel();
+        if (!im) return null;
         try {
-            var im = model.internalModel;
             var idx = im.getParameterIndex(id);
-            if (idx < 0) return null;
+            if (idx < 0 || idx >= im.getParameterCount()) return null;
             var min = im.getParameterMinimumValue(idx);
             var max = im.getParameterMaximumValue(idx);
             if (typeof min === 'number' && typeof max === 'number') {
@@ -287,7 +300,7 @@
                 var exists = hasParam(pid);
                 var range = getParamRange(pid);
                 var val = 'N/A';
-                try { val = model.getParameterValueById(pid); } catch (e) {}
+                try { val = model.internalModel.coreModel.getParameterValueById(pid); } catch (e) {}
                 console.log('[ModelDebug]', pid, 'exists:', exists, 'range:', range ? ('[' + range.min + ', ' + range.max + ']') : 'null', 'val:', val);
             }
 
@@ -310,16 +323,30 @@
         }
     }
 
+    // 模型水平偏移 (逻辑像素, 正数=右移): 官方模型画布里猫咪略微偏左，
+    // 右移一点让猫咪对准桌面/键盘-鼠标的中心。如需微调改这个值即可。
+    const MODEL_OFFSET_X = 22;
+
     function scaleModel() {
         if (!model || !app) return;
         var sw = app.screen.width;
         var sh = app.screen.height;
-        var sx = sw / model.width;
-        var sy = sh / model.height;
-        var sc = Math.min(sx, sy) * 0.9;
-        model.scale.set(sc);
-        model.x = (sw - model.width * sc) / 2;
-        model.y = (sh - model.height * sc) / 2;
+        // 与官方 BongoCat (src/utils/live2d.ts resizeModel) 完全一致:
+        //   scale = min(sx, sy); anchor = 0.5; 模型中心对准窗口中心
+        var scale = Math.min(sw / model.width, sh / model.height);
+        model.scale.set(scale);
+        model.anchor.set(0.5);
+        model.x = sw / 2 + MODEL_OFFSET_X;
+        model.y = sh / 2;
+        scaleBackground();
+    }
+
+    function scaleBackground() {
+        if (!bgSprite || !app) return;
+        bgSprite.x = 0;
+        bgSprite.y = 0;
+        bgSprite.width = app.screen.width;
+        bgSprite.height = app.screen.height;
     }
 
     // =============================================
@@ -366,13 +393,14 @@
             'CatParamStickLeftDown', 'CatParamStickRightDown'
         ];
         for (var i = 0; i < params.length; i++) {
-            try { model.setParameterValueById(params[i], 0); } catch (e) {}
+            try { model.internalModel.coreModel.setParameterValueById(params[i], 0); } catch (e) {}
         }
     }
 
     function setParameter(paramId, value) {
-        if (!model) return false;
-        try { model.setParameterValueById(paramId, value); return true; }
+        var im = coreModel();
+        if (!im) return false;
+        try { im.setParameterValueById(paramId, value); return true; }
         catch (e) { return false; }
     }
 
@@ -555,14 +583,48 @@
     // keyName -> HTMLImageElement
     const pressedKeyImages = {};
 
+    // 背景 sprite (画进 PIXI 画布) — 不用 HTML <img> 层:
+    // Qt WebEngine 的窗口合成会把带透明像素的背景图 (非预乘 alpha, 如 (255,255,255,0))
+    // 按预乘呈现为白色。因此把图片像素手动预乘 (RGB *= A/255), 透明像素变成 (0,0,0,0),
+    // PIXI 按预乘 alpha 渲染即可正确透明。
+    let bgSprite = null;
+
     function setBackground(url) {
-        if (!url) {
-            bgLayer.style.display = 'none';
-            bgLayer.removeAttribute('src');
-            return;
+        if (bgSprite) {
+            try { app && app.stage.removeChild(bgSprite); bgSprite.destroy(); } catch (e) {}
+            bgSprite = null;
         }
-        bgLayer.src = url;
-        bgLayer.style.display = 'block';
+        bgLayer.style.display = 'none';
+        bgLayer.removeAttribute('src');
+        if (!url) return;
+
+        var img = new Image();
+        img.onload = function() {
+            if (!app) return;
+            var w = img.naturalWidth, h = img.naturalHeight;
+            var cv = document.createElement('canvas');
+            cv.width = w; cv.height = h;
+            var ctx = cv.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            try {
+                // 手动预乘 alpha: (R,G,B,A) -> (R*A/255, G*A/255, B*A/255, A)
+                var imgData = ctx.getImageData(0, 0, w, h);
+                var d = imgData.data;
+                for (var i = 0; i < d.length; i += 4) {
+                    var a = d[i + 3] / 255;
+                    d[i] = Math.round(d[i] * a);
+                    d[i + 1] = Math.round(d[i + 1] * a);
+                    d[i + 2] = Math.round(d[i + 2] * a);
+                }
+                ctx.putImageData(imgData, 0, 0);
+            } catch (e) {}
+            var tex = PIXI.Texture.from(cv);
+            bgSprite = new PIXI.Sprite(tex);
+            scaleBackground();
+            app.stage.addChildAt(bgSprite, 0);
+        };
+        img.onerror = function() { console.warn('[Live2D] background load failed:', url); };
+        img.src = url;
     }
 
     function setKeyImage(keyName, url) {
@@ -636,12 +698,14 @@
         var eyeRatioY = currentMouseYRatio + stickRY * 0.5;
 
         // === L-101: 按参数 min/max 映射 ===
-        // X/Y 轴: value = min + ratio * (max - min)
+        // X/Y 轴: value = max - ratio * (max - min)  (与官方 BongoCat 一致)
         // Z 轴:    value = (1-2*xRatio) * (1-2*yRatio) * min
         function mapAxis(id, ratio) {
             var r = getParamRange(id);
             if (!r) return null;
-            return r.min + ratio * (r.max - r.min);
+            // 与官方 BongoCat useModel.ts 一致: value = max - ratio * (max - min)
+            // (此前 min + ratio*(max-min) 是镜像方向，眼睛/头部会朝反方向转动)
+            return r.max - ratio * (r.max - r.min);
         }
         function mapZAxis(id, xRatio, yRatio) {
             var r = getParamRange(id);
@@ -693,14 +757,16 @@
 
         // === 应用所有参数 ===
         // 眼球 / 头部
+        // mapAxis 已按参数自身 [min, max] 映射，且 Cubism 内部 setParameter 会再次
+        // 钳制到 [min, max]，因此无需额外硬编码 clamp，避免限制模型原生范围
         if (vMouseX !== null)  safeSetParam('ParamMouseX', vMouseX);
         if (vMouseY !== null)  safeSetParam('ParamMouseY', vMouseY);
-        if (vAngleX !== null)  safeSetParam('ParamAngleX', clamp(vAngleX, -30, 30));
-        if (vAngleY !== null)  safeSetParam('ParamAngleY', clamp(vAngleY, -30, 30));
-        if (vAngleZ !== null)  safeSetParam('ParamAngleZ', clamp(vAngleZ, -15, 15));
-        if (vEyeBallX !== null) safeSetParam('ParamEyeBallX', clamp(vEyeBallX, -1, 1));
-        if (vEyeBallY !== null) safeSetParam('ParamEyeBallY', clamp(vEyeBallY, -1, 1));
-        if (vBodyAngleX !== null) safeSetParam('ParamBodyAngleX', clamp(vBodyAngleX, -10, 10));
+        if (vAngleX !== null)  safeSetParam('ParamAngleX', vAngleX);
+        if (vAngleY !== null)  safeSetParam('ParamAngleY', vAngleY);
+        if (vAngleZ !== null)  safeSetParam('ParamAngleZ', vAngleZ);
+        if (vEyeBallX !== null) safeSetParam('ParamEyeBallX', vEyeBallX);
+        if (vEyeBallY !== null) safeSetParam('ParamEyeBallY', vEyeBallY);
+        if (vBodyAngleX !== null) safeSetParam('ParamBodyAngleX', vBodyAngleX);
 
         // 呼吸
         safeSetParam('ParamBreath', breathValue);

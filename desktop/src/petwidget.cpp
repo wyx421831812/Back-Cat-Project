@@ -293,6 +293,16 @@ void PetWidget::updateOpacity()
 {
     // 透明度 (0-100 -> 0.0-1.0)
     qreal op = AppConfig::instance().windowOpacity() / 100.0;
+
+    // 关键: 透明度为 100% 时绝不调用 setWindowOpacity(1.0)。
+    // Qt Windows 平台层 (qwindowswindow.cpp setWindowOpacity) 对带 OpenGL/
+    // 加速表面(WebEngine 即属此类)的窗口会走
+    //   SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)   // 常量 alpha
+    // 分支，这会把 WA_TranslucentBackground 的逐像素透明(AC_SRC_ALPHA)
+    // 覆盖成常量不透明，导致 WebEngine 页面的透明区域显示为白色。
+    if (qFuzzyCompare(op, 1.0))
+        return;
+
     setWindowOpacity(op);
 }
 

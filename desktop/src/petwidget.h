@@ -14,15 +14,15 @@ class TodoWidget;
 class BongoCatWidget;
 
 /**
- * @brief 主窗口 - 无边框透明置顶桌面宠物
+ * @brief 涓荤獥鍙?- 鏃犺竟妗嗛€忔槑缃《妗岄潰瀹犵墿
  *
- * 特性:
- * - 无边框透明窗口
- * - 始终置顶
- * - 支持点击穿透
- * - 可拖拽移动
- * - 右键菜单切换组件
- * - 系统托盘图标
+ * 鐗规€?
+ * - 鏃犺竟妗嗛€忔槑绐楀彛
+ * - 濮嬬粓缃《
+ * - 鏀寔鐐瑰嚮绌块€?
+ * - 鍙嫋鎷界Щ鍔?
+ * - 鍙抽敭鑿滃崟鍒囨崲缁勪欢
+ * - 绯荤粺鎵樼洏鍥炬爣
  */
 class PetWidget : public QWidget
 {
@@ -33,14 +33,14 @@ public:
     ~PetWidget();
 
 protected:
-    // 窗口事件
+    // 绐楀彛浜嬩欢
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void contextMenuEvent(QContextMenuEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
 
-    // Windows 原生事件 (点击穿透)
+    // Windows 鍘熺敓浜嬩欢 (鐐瑰嚮绌块€?
 #ifdef Q_OS_WIN
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
 #endif
@@ -54,55 +54,55 @@ private:
     void updateAlwaysOnTop();
     void updateOpacity();
 
-    // 组件切换
+    // 缁勪欢鍒囨崲
     void switchToPet();
     void switchToClock();
     void switchToQuote();
     void switchToTodo();
     void switchToBongoCat();
 
-    // 情绪控制
+    // 鎯呯华鎺у埗
     void setMoodHappy();
     void setMoodSleep();
     void setMoodExcited();
     void setMoodNeutral();
 
-    // 3D模型切换
+    // 3D妯″瀷鍒囨崲
     void setModelCat();
     void setModelBear();
     void setModelBunny();
     void setModelFairyBird();
     void setModelSpirit();
 
-    // BongoCat 模型相关
+    // BongoCat 妯″瀷鐩稿叧
     void rebuildBongoCatModelMenu();
     void switchToBongoCatModel(const QString &modelId);
     void importBongoCatModel();
     void deleteBongoCatModel(const QString &modelId);
 
 private:
-    // 拖拽 (放在前面以匹配初始化顺序)
+    // 鎷栨嫿 (鏀惧湪鍓嶉潰浠ュ尮閰嶅垵濮嬪寲椤哄簭)
     bool m_dragging;
     QPoint m_dragOffset;
 
-    // 核心控件
+    // 鏍稿績鎺т欢
     QStackedWidget *m_stack;
     PetCanvas *m_petCanvas;
 
-    // 功能组件
+    // 鍔熻兘缁勪欢
     ClockWidget *m_clockWidget;
     QuoteWidget *m_quoteWidget;
     TodoWidget *m_todoWidget;
     BongoCatWidget *m_bongoCatWidget;
 
-    // 系统托盘
+    // 绯荤粺鎵樼洏
     QSystemTrayIcon *m_trayIcon;
     QMenu *m_trayMenu;
     QMenu *m_contextMenu;
     QMenu *m_trayBongoModelMenu;
     QMenu *m_contextBongoModelMenu;
 
-    // 组件索引
+    // 缁勪欢绱㈠紩
     enum ComponentIndex {
         PetComponent = 0,
         ClockComponent = 1,

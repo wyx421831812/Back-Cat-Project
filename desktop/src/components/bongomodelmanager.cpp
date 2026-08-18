@@ -20,10 +20,16 @@ static QString getDefaultModelsPath()
         return appLocal;
     }
 
-    // 2. 开发阶段：源码目录 desktop/resources/models（相对于构建目录 bin/）
-    QString devLocal = appDir + "/../resources/models";
-    if (QFile::exists(devLocal + "/standard/cat.model3.json")) {
-        return QDir(devLocal).absolutePath();
+    // 2. 开发/调试阶段：向上回溯查找源码目录 desktop/resources/models
+    //    (Qt Creator 影子构建: <proj>/desktop/build/<kit>/bin -> ../../../resources/models)
+    //    避免在装了 BongoCat 的机器上误用官方安装目录导致模型来源不一致
+    QString probe = appDir;
+    for (int i = 0; i < 3; ++i) {
+        probe += "/..";
+        QString devLocal = QDir(probe + "/resources/models").absolutePath();
+        if (QFile::exists(devLocal + "/standard/cat.model3.json")) {
+            return devLocal;
+        }
     }
 
     // 3. 回退：BongoCat 官方安装目录
