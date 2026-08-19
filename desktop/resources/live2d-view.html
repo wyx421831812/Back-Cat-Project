@@ -529,26 +529,39 @@
     // =============================================
     // === L-102: 鼠标左右键 ===
     // button: 0=左键, 2=右键 (DOM MouseEvent.button 约定)
+    // 注意: 标准模型有独立的 ParamMouseLeftDown/ParamMouseRightDown 参数控制鼠标手(右手)，
+    //       此时鼠标点击不应再驱动 CatParamLeftHandDown(键盘手/左手)，
+    //       否则会同时触发两只手的动画。
+    //       对于没有 ParamMouseLeftDown 的模型(keyboard/gamepad)，
+    //       鼠标点击回退到手部参数动画。
     function handleMouseDown(button) {
         if (!model) return;
         lastInteractionTime = performance.now();
         if (button === 0) {
             mouseLeftDown = true;
-            // 左键同时驱动左手按下动画 (BongoCat 行为: 鼠标左键 → 左手)
-            setLeftHand(true);
+            // 仅当模型没有 ParamMouseLeftDown(鼠标专用参数)时才驱动左手动画
+            if (!hasParam('ParamMouseLeftDown')) {
+                setLeftHand(true);
+            }
         } else if (button === 2) {
             mouseRightDown = true;
-            setRightHand(true);
+            if (!hasParam('ParamMouseRightDown')) {
+                setRightHand(true);
+            }
         }
     }
     function handleMouseUp(button) {
         if (!model) return;
         if (button === 0) {
             mouseLeftDown = false;
-            setLeftHand(false);
+            if (!hasParam('ParamMouseLeftDown')) {
+                setLeftHand(false);
+            }
         } else if (button === 2) {
             mouseRightDown = false;
-            setRightHand(false);
+            if (!hasParam('ParamMouseRightDown')) {
+                setRightHand(false);
+            }
         }
     }
 

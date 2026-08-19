@@ -6,6 +6,8 @@
 #include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QEvent>
+#include <QMouseEvent>
 #if defined(USE_QT_WEBENGINE)
 #include <QWebEngineSettings>
 #include <QWebEnginePage>
@@ -86,6 +88,9 @@ Live2DWidget::Live2DWidget(QWidget *parent)
     m_webView->setPage(new ConsoleLoggingPage(m_webView));
     m_webView->page()->setBackgroundColor(Qt::transparent);
 
+    // 安装事件过滤器，将鼠标事件转发给父窗口以支持拖拽
+    m_webView->installEventFilter(this);
+
     m_webView->setGeometry(0, 0, width(), height());
 
     // 鐩戝惉 JS 閫氳繃 document.title 鍙戝嚭鐨勪簨浠?
@@ -115,6 +120,9 @@ Live2DWidget::Live2DWidget(QWidget *parent)
     m_quickWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
 
     m_quickWidget->setSource(QUrl("qrc:/resources/live2d-webview.qml"));
+
+    // 安装事件过滤器，将鼠标事件转发给父窗口以支持拖拽
+    m_quickWidget->installEventFilter(this);
 
     m_quickWidget->setGeometry(0, 0, width(), height());
 
@@ -146,6 +154,20 @@ void Live2DWidget::resizeEvent(QResizeEvent *event)
     if (m_quickWidget)
         m_quickWidget->setGeometry(0, 0, width(), height());
 #endif
+}
+
+bool Live2DWidget::eventFilter(QObject *watched, QEvent *event)
+{
+    // 将 WebEngineView/QQuickWidget 的鼠标事件转发给顶层窗口以支持拖拽
+    // 注意: 用 window() 而非 parentWidget(), 因为中间隔着 BongoCatWidget 和 QStackedWidget
+    if (event->type() == QEvent::MouseButtonPress ||
+        event->type() == QEvent::MouseButtonRelease ||
+        event->type() == QEvent::MouseMove) {
+        if (QWidget *w = window()) {
+            QCoreApplication::sendEvent(w, event);
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 #if defined(USE_QT_WEBVIEW)

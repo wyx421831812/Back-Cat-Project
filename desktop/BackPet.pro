@@ -52,10 +52,12 @@ CONFIG += c++17
 TARGET = BackPet
 TEMPLATE = app
 DESTDIR = bin
-OBJECTS_DIR = build/obj
-MOC_DIR = build/moc
-RCC_DIR = build/rcc
-UI_DIR = build/ui
+# OBJECTS_DIR/MOC_DIR/RCC_DIR/UI_DIR 使用 qmake 默认值（配置相关），
+# 避免 Debug/Release 共享同一目录导致 stale .obj 混合链接
+# OBJECTS_DIR = build/obj
+# MOC_DIR = build/moc
+# RCC_DIR = build/rcc
+# UI_DIR = build/ui
 
 # 源文件
 SOURCES += \

@@ -502,8 +502,20 @@ void PetWidget::closeEvent(QCloseEvent *event)
 #ifdef Q_OS_WIN
 bool PetWidget::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
 {
-    // 处理 Windows 原生消息
-    // 可以在这里处理 WM_NCHITTEST 实现自定义点击穿透区域
+    Q_UNUSED(eventType);
+    MSG *msg = static_cast<MSG *>(message);
+
+    // 左键按下时将客户区视为标题栏，交给 Windows 原生拖动窗口。
+    // 这样即使 BongoCat 内嵌的 QWebEngineView(Chromium) 捕获了鼠标，
+    // 也能正常拖动。右键保持默认，以触发自定义右键菜单。
+    if (msg->message == WM_NCHITTEST &&
+        !AppConfig::instance().clickThrough()) {
+        if (GetAsyncKeyState(VK_LBUTTON) & 0x8000) {
+            *result = HTCAPTION;
+            return true;
+        }
+    }
+
     return QWidget::nativeEvent(eventType, message, result);
 }
 #endif

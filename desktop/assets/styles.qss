@@ -4,10 +4,39 @@
    注意: 必须显式 background: transparent!
    QStyleSheetStyle 会给没有背景规则的 QWidget 画默认(不透明)背景，
    这会让透明窗口(桌宠)中 WebEngine 页面的透明区域显示为白色。
-   各具体组件(QDialog/QPushButton 等)有更具体的背景规则，不受影响。 */
+   各具体组件(QDialog/QPushButton/QMenu 等)有更具体的背景规则，不受影响。 */
 QWidget {
     font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
     background: transparent;
+}
+
+/* 右键/托盘菜单: 必须显式背景, 否则会被上面的 QWidget 透明规则影响,
+   弹出菜单背景变透明(露出壁纸/桌面, 看起来花屏) */
+QMenu {
+    background: white;
+    border: 1px solid #e2e8f0;
+    padding: 4px;
+}
+QMenu::item {
+    padding: 6px 24px;
+    color: #0f172a;
+}
+QMenu::item:selected {
+    background: #f1f5f9;
+    border-radius: 4px;
+}
+QMenu::separator {
+    height: 1px;
+    background: #e2e8f0;
+    margin: 4px 8px;
+}
+
+/* 工具提示 */
+QToolTip {
+    background: #1e293b;
+    color: white;
+    border: none;
+    padding: 4px 8px;
 }
 
 /* 设置对话框 */

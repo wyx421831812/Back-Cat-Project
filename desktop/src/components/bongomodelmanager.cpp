@@ -390,6 +390,17 @@ BongoModel BongoModelManager::loadBongoCatFormat(const QString &dirPath)
             if (!textures.isEmpty()) {
                 model.live2dTextureFile = dirPath + "/" + textures.first().toString();
             }
+
+            // 校验 .moc3 文件是否存在 (Live2D 核心文件, 缺失则模型不可用)
+            // 不完整的模型 (如只有 cat.model3.json 但缺 moc3) 会导致 Live2D 加载失败,
+            // 应用回退到静态图片模式, 若其 background.png 不透明, 整个窗口会变白。
+            // 因此缺失 moc3 的模型直接判为无效, 不进入模型列表。
+            QString mocFile = refs.value("Moc").toString();
+            if (!mocFile.isEmpty() && !QFile::exists(dirPath + "/" + mocFile)) {
+                qWarning() << "[BongoModelManager] model missing .moc3, marking invalid:"
+                           << dirPath + "/" + mocFile;
+                return BongoModel(); // 无效模型
+            }
         }
     }
 

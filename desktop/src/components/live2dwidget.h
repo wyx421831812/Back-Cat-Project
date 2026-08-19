@@ -83,6 +83,7 @@ private slots:
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void runJavaScript(const QString &code);

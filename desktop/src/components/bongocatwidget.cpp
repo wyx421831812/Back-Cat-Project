@@ -9,6 +9,7 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QtMath>
+#include <QCoreApplication>
 
 #ifdef Q_OS_WIN
 BongoCatWidget *BongoCatWidget::s_instance = nullptr;
@@ -30,7 +31,11 @@ BongoCatWidget::BongoCatWidget(QWidget *parent)
 
     // 加载模型管理器中的模型
     BongoModelManager::instance().loadModels();
-    reloadCurrentModel();
+    // 关键: 延迟 Live2D 初始化 (等事件循环启动、顶层窗口创建之后再加载)。
+    // 实测若 WebEngine 合成器委托(QQuickWidget)在顶层窗口创建前就初始化,
+    // 窗口会按"加速表面(D3D)"创建, 导致 WebEngine 页面透明区域在窗口合成时
+    // 显示为白色(背景不透明)。延迟到窗口创建后再初始化即可保持逐像素透明。
+    QTimer::singleShot(0, this, &BongoCatWidget::reloadCurrentModel);
 
     // 监听模型变化
     connect(&BongoModelManager::instance(), &BongoModelManager::modelChanged,
@@ -193,7 +198,20 @@ void BongoCatWidget::switchToLive2D()
         connect(m_live2dWidget, &Live2DWidget::errorOccurred,
                 this, [this](const QString &err) {
             qWarning() << "Live2D error:" << err;
-            // 出错时回退到静态图片
+            // 出错时优先回退到标准模型 (透明背景), 而不是静态图片。
+            // 静态图片模式会绘制模型自带的 background.png, 若该图不透明
+            // (如不完整的自定义模型), 整个窗口会变成不透明的白背景。
+            // 标准模型 (preset_bongocat_standard) 的 moc3 完整且背景透明,
+            // 自动切换过去即可保持桌面宠物逐像素透明。
+            if (m_model.id != QLatin1String("preset_bongocat_standard")) {
+                auto &mgr = BongoModelManager::instance();
+                if (mgr.getModelById(QLatin1String("preset_bongocat_standard")).isValid()) {
+                    qWarning() << "Live2D load failed, falling back to standard model";
+                    mgr.setCurrentModel(QLatin1String("preset_bongocat_standard"));
+                    return; // modelChanged 信号会触发 reloadCurrentModel
+                }
+            }
+            // 标准模型自身也失败(极端情况): 回退到静态图片
             switchToStaticImage();
         });
     }
@@ -1160,10 +1178,33 @@ void BongoCatWidget::drawKeyPressRipple(QPainter &painter, const QRect &catRect,
     painter.restore();
 }
 
+void BongoCatWidget::mousePressEvent(QMouseEvent *event)
+{
+    // 转发给顶层窗口(PetWidget)以支持窗口拖拽
+    // 注意: 不能用 parentWidget(), 因为中间隔着 QStackedWidget 会截断事件
+    if (QWidget *w = window()) {
+        QCoreApplication::sendEvent(w, event);
+    }
+    QWidget::mousePressEvent(event);
+}
+
 void BongoCatWidget::mouseMoveEvent(QMouseEvent *event)
 {
     updateMouseFollow(event->globalPosition().toPoint());
+    // 转发给顶层窗口(PetWidget)以支持窗口拖拽
+    if (QWidget *w = window()) {
+        QCoreApplication::sendEvent(w, event);
+    }
     ComponentBase::mouseMoveEvent(event);
+}
+
+void BongoCatWidget::mouseReleaseEvent(QMouseEvent *event)
+{
+    // 转发给顶层窗口(PetWidget)以支持窗口拖拽
+    if (QWidget *w = window()) {
+        QCoreApplication::sendEvent(w, event);
+    }
+    QWidget::mouseReleaseEvent(event);
 }
 
 void BongoCatWidget::enterEvent(QEnterEvent *event)
