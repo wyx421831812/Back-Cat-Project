@@ -6,8 +6,6 @@
 #include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QEvent>
-#include <QMouseEvent>
 #if defined(USE_QT_WEBENGINE)
 #include <QWebEngineSettings>
 #include <QWebEnginePage>
@@ -16,8 +14,8 @@
 #endif
 
 #if defined(USE_QT_WEBENGINE)
-// QWebEnginePage 瀛愮被: 灏?JS console.log/warn/error 杞彂鍒?Qt 鏃ュ織
-// (javaScriptConsoleMessage 鏄?protected 铏氬嚱鏁帮紝蹇呴』閲嶅啓鎵嶈兘鎷︽埅)
+// QWebEnginePage 子类: 将 JS console.log/warn/error 转发到 Qt 日志
+// (javaScriptConsoleMessage 是 protected 虚函数，必须重写才能拦截)
 class ConsoleLoggingPage : public QWebEnginePage
 {
 public:
@@ -48,7 +46,7 @@ protected:
 };
 #endif
 
-// JS 閫氳繃 document.title 鍙戦€佺殑浜嬩欢鍓嶇紑, 鏍煎紡:
+// JS 通过 document.title 发送的事件前缀, 格式:
 //   "__bongocat__:<json-payload>:<timestamp>"
 static const QString kTitlePrefix = QStringLiteral("__bongocat__:");
 
@@ -59,24 +57,24 @@ Live2DWidget::Live2DWidget(QWidget *parent)
     setAttribute(Qt::WA_TranslucentBackground);
     setAutoFillBackground(false);
 
-    // 閲嶈: 涓嶈浣跨敤 QVBoxLayout!
-    // 瀹炴祴鍦ㄥ叏灞€鏍峰紡琛?QStyleSheetStyle)瀛樺湪鏃? 甯﹀竷灞€鐨勭埗鎺т欢浼氳缁樺埗涓嶉€忔槑鑳屾櫙,
-    // 瀵艰嚧 WebEngine 椤甸潰閫忔槑鍖哄煙鍦ㄧ獥鍙ｅ悎鎴愭椂鏄剧ず涓虹櫧鑹层€?
-    // 鏀圭敤鐩存帴 setGeometry + resizeEvent 淇濇寔瀛愭帶浠跺～婊°€?
+    // 重要: 不要使用 QVBoxLayout!
+    // 实测在全局样式表(QStyleSheetStyle)存在时, 带布局的父控件会被绘制不透明背景,
+    // 导致 WebEngine 页面透明区域在窗口合成时显示为白色。
+    // 改用直接 setGeometry + resizeEvent 保持子控件填满。
 
 #if defined(USE_QT_WEBENGINE)
-    // MSVC/Windows: 浣跨敤 QWebEngineView
+    // MSVC/Windows: 使用 QWebEngineView
     m_webView = new QWebEngineView(this);
     m_webView->setStyleSheet("background: transparent;");
     m_webView->setAttribute(Qt::WA_TranslucentBackground);
     m_webView->setAutoFillBackground(false);
-    // 绂佺敤 WebEngine 榛樿鍙抽敭鑿滃崟 (杩斿洖/鍒锋柊/鍙﹀瓨涓虹瓑)锛屾瀹犱笉搴斿嚭鐜版祻瑙堝櫒鑿滃崟
+    // 禁用 WebEngine 默认右键菜单 (返回/刷新/另存为等)，桌宠不应出现浏览器菜单
     m_webView->setContextMenuPolicy(Qt::NoContextMenu);
     QPalette pal = m_webView->palette();
     pal.setBrush(QPalette::Base, Qt::transparent);
     m_webView->setPalette(pal);
 
-    // 鍚敤閫忔槑鑳屾櫙鍜屽繀瑕佺殑璁剧疆
+    // 启用透明背景和必要的设置
     QWebEngineSettings *settings = m_webView->settings();
     settings->setAttribute(QWebEngineSettings::ShowScrollBars, false);
     settings->setAttribute(QWebEngineSettings::JavascriptEnabled, true);
@@ -84,45 +82,39 @@ Live2DWidget::Live2DWidget(QWidget *parent)
     settings->setAttribute(QWebEngineSettings::LocalContentCanAccessFileUrls, true);
     settings->setAttribute(QWebEngineSettings::AllowRunningInsecureContent, true);
 
-    // 璁剧疆椤甸潰鑳屾櫙閫忔槑锛屽苟浣跨敤鑷畾涔?Page 杞彂 JS console 娑堟伅
+    // 设置页面背景透明，并使用自定义 Page 转发 JS console 消息
     m_webView->setPage(new ConsoleLoggingPage(m_webView));
     m_webView->page()->setBackgroundColor(Qt::transparent);
 
-    // 安装事件过滤器，将鼠标事件转发给父窗口以支持拖拽
-    m_webView->installEventFilter(this);
-
     m_webView->setGeometry(0, 0, width(), height());
 
-    // 鐩戝惉 JS 閫氳繃 document.title 鍙戝嚭鐨勪簨浠?
+    // 监听 JS 通过 document.title 发出的事件
     connect(m_webView, &QWebEngineView::titleChanged,
             this, &Live2DWidget::onWebViewTitleChanged);
 
-    // 椤甸潰鍔犺浇瀹屾垚鍚庢敞鍏?HTML
+    // 页面加载完成后注入 HTML
     connect(m_webView, &QWebEngineView::loadFinished, this, [this](bool ok) {
         if (ok) {
             qDebug() << "Live2D WebEngine page loaded";
-            // 鏌愪簺 Qt 鐗堟湰鍦?setHtml/瀵艰埅瀹屾垚鍚庝細鎶婇〉闈㈣儗鏅噸缃负鐧借壊锛?
-            // 蹇呴』閲嶆柊搴旂敤閫忔槑鑳屾櫙锛屽惁鍒欐ā鍨嬬殑閫忔槑鍖哄煙浼氭樉绀轰负鐧借壊鍧?
+            // 某些 Qt 版本在 setHtml/导航完成后会把页面背景重置为白色，
+            // 必须重新应用透明背景，否则模型的透明区域会显示为白色块
             m_webView->page()->setBackgroundColor(Qt::transparent);
         } else {
             qWarning() << "Live2D WebEngine page failed to load";
         }
     });
 
-    // 鐩存帴 setHtml 鍔犺浇瀹屾暣椤甸潰锛堜笉瑕佸厛 load about:blank锛屽惁鍒欎細浜х敓绔炰簤锛?
+    // 直接 setHtml 加载完整页面（不要先 load about:blank，否则会产生竞争）
     loadCombinedHtml();
 
 #elif defined(USE_QT_WEBVIEW)
-    // MinGW: 浣跨敤 QQuickWidget 鍔犺浇 QML WebView
+    // MinGW: 使用 QQuickWidget 加载 QML WebView
     m_quickWidget = new QQuickWidget(this);
     m_quickWidget->setStyleSheet("background: transparent;");
     m_quickWidget->setAttribute(Qt::WA_TranslucentBackground);
     m_quickWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
 
     m_quickWidget->setSource(QUrl("qrc:/resources/live2d-webview.qml"));
-
-    // 安装事件过滤器，将鼠标事件转发给父窗口以支持拖拽
-    m_quickWidget->installEventFilter(this);
 
     m_quickWidget->setGeometry(0, 0, width(), height());
 
@@ -156,20 +148,6 @@ void Live2DWidget::resizeEvent(QResizeEvent *event)
 #endif
 }
 
-bool Live2DWidget::eventFilter(QObject *watched, QEvent *event)
-{
-    // 将 WebEngineView/QQuickWidget 的鼠标事件转发给顶层窗口以支持拖拽
-    // 注意: 用 window() 而非 parentWidget(), 因为中间隔着 BongoCatWidget 和 QStackedWidget
-    if (event->type() == QEvent::MouseButtonPress ||
-        event->type() == QEvent::MouseButtonRelease ||
-        event->type() == QEvent::MouseMove) {
-        if (QWidget *w = window()) {
-            QCoreApplication::sendEvent(w, event);
-        }
-    }
-    return QWidget::eventFilter(watched, event);
-}
-
 #if defined(USE_QT_WEBVIEW)
 void Live2DWidget::onQuickWidgetStatusChanged(QQuickWidget::Status status)
 {
@@ -182,11 +160,11 @@ void Live2DWidget::onQuickWidgetStatusChanged(QQuickWidget::Status status)
             if (m_webViewObj) {
                 qDebug() << "Found QML WebView object";
 
-                // 鐩戝惉 JS 閫氳繃 document.title 鍙戝嚭鐨勪簨浠?
+                // 监听 JS 通过 document.title 发出的事件
                 connect(m_webViewObj, SIGNAL(titleChanged(QString)),
                         this, SLOT(onWebViewTitleChanged(QString)));
 
-                // 鍔犺浇鍚堝苟鍚庣殑 HTML
+                // 加载合并后的 HTML
                 loadCombinedHtml();
             } else {
                 qWarning() << "Could not find live2dWebView in QML";
@@ -200,13 +178,13 @@ void Live2DWidget::onQuickWidgetStatusChanged(QQuickWidget::Status status)
 
 void Live2DWidget::onWebViewTitleChanged(const QString &title)
 {
-    // 鍙鐞嗗甫鍓嶇紑鐨勪簨浠舵秷鎭? 鍏跺畠 title 鍙樺寲蹇界暐
+    // 只处理带前缀的事件消息, 其它 title 变化忽略
     if (!title.startsWith(kTitlePrefix)) return;
 
-    // 鏍煎紡: "__bongocat__:<json-payload>:<timestamp>"
+    // 格式: "__bongocat__:<json-payload>:<timestamp>"
     QString payload = title.mid(kTitlePrefix.size());
 
-    // 鍘婚櫎鏈熬鐨?":<timestamp>"
+    // 去掉末尾的 ":<timestamp>"
     int lastColon = payload.lastIndexOf(':');
     if (lastColon > 0) {
         payload.chop(payload.size() - lastColon);
@@ -274,11 +252,11 @@ void Live2DWidget::loadCombinedHtml()
         return QString::fromUtf8(f.readAll());
     };
 
-    // 鎸変緷璧栭『搴忓唴鑱? pixi.js -> live2d.min.js(Cubism2 杩愯鏃? -> live2dcubismcore.min.js(Cubism4 鏍稿績) -> pixi-live2d-display.js
-    // 娉ㄦ剰: pixi-live2d-display 鍦ㄦā鍧楀姞杞芥椂鍗虫鏌?window.Live2DCubismCore锛?
-    // 鑻?Cubism 鏍稿績鏅氫簬瀹冨姞杞戒細鐩存帴 throw "Could not find Cubism 4 runtime"锛?
-    // 瀵艰嚧 PIXI.live2d.Live2DModel 鏈敞鍐屻€佹ā鍨嬪姞杞芥姤 "reading 'from'" 澶辫触锛?
-    // 搴旂敤鍥為€€鍒伴潤鎬佸浘鐗囨ā寮?鐪肩潧/榧犳爣/鍙虫墜鍏ㄩ儴涓嶄細鍔?銆傛牳蹇冨簱蹇呴』鎺掑湪鍓嶉潰銆?
+    // 按依赖顺序内联: pixi.js -> live2d.min.js(Cubism2 运行时) -> live2dcubismcore.min.js(Cubism4 核心) -> pixi-live2d-display.js
+    // 注意: pixi-live2d-display 在模块加载时即检查 window.Live2DCubismCore，
+    // 若 Cubism 核心晚于它加载会直接 throw "Could not find Cubism 4 runtime"，
+    // 导致 PIXI.live2d.Live2DModel 未注册、模型加载报 "reading 'from'" 失败，
+    // 应用回退到静态图片模式(眼睛/鼠标/右键全部不会动)。核心库必须排在前面。
     QStringList inlineScripts;
     inlineScripts << "<script>" << readJs(":/resources/js/pixi.min.js") << "</script>";
     inlineScripts << "<script>" << readJs(":/resources/js/live2d.min.js") << "</script>";
@@ -288,13 +266,13 @@ void Live2DWidget::loadCombinedHtml()
     QString allScripts = inlineScripts.join("\n");
     html.replace("/*__INLINE_SCRIPTS__*/", allScripts);
 
-    // baseUrl 浣跨敤鏈湴 HTTP 鏈嶅姟鍣? 纭繚椤甸潰 origin 涓?http://127.0.0.1,
-    // 閬垮厤鍥?origin=null 鎴?qrc:/ 瀵艰嚧鐨?CORS 闄愬埗
+    // baseUrl 使用本地 HTTP 服务器, 确保页面 origin 为 http://127.0.0.1,
+    // 避免因 origin=null 或 qrc:/ 导致的 CORS 限制
     quint16 port = LocalFileServer::instance()->port();
     QUrl baseUrl(QStringLiteral("http://127.0.0.1:%1/").arg(port));
 
 #if defined(USE_QT_WEBENGINE)
-    // WebEngine 鐩存帴浣跨敤 setHtml
+    // WebEngine 直接使用 setHtml
     m_webView->setHtml(html, baseUrl);
 #elif defined(USE_QT_WEBVIEW)
     if (!m_webViewObj) return;

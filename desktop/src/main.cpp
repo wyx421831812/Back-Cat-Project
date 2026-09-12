@@ -25,7 +25,7 @@ int main(int argc, char *argv[])
 
     // 设置应用信息
     app.setApplicationName("BackPet");
-    app.setApplicationVersion("0.0.1");
+    app.setApplicationVersion("0.0.2");
     app.setOrganizationName("BackPet");
 
     // 加载配置

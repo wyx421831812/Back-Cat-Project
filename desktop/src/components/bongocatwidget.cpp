@@ -9,7 +9,6 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QtMath>
-#include <QCoreApplication>
 
 #ifdef Q_OS_WIN
 BongoCatWidget *BongoCatWidget::s_instance = nullptr;
@@ -1178,33 +1177,10 @@ void BongoCatWidget::drawKeyPressRipple(QPainter &painter, const QRect &catRect,
     painter.restore();
 }
 
-void BongoCatWidget::mousePressEvent(QMouseEvent *event)
-{
-    // 转发给顶层窗口(PetWidget)以支持窗口拖拽
-    // 注意: 不能用 parentWidget(), 因为中间隔着 QStackedWidget 会截断事件
-    if (QWidget *w = window()) {
-        QCoreApplication::sendEvent(w, event);
-    }
-    QWidget::mousePressEvent(event);
-}
-
 void BongoCatWidget::mouseMoveEvent(QMouseEvent *event)
 {
     updateMouseFollow(event->globalPosition().toPoint());
-    // 转发给顶层窗口(PetWidget)以支持窗口拖拽
-    if (QWidget *w = window()) {
-        QCoreApplication::sendEvent(w, event);
-    }
     ComponentBase::mouseMoveEvent(event);
-}
-
-void BongoCatWidget::mouseReleaseEvent(QMouseEvent *event)
-{
-    // 转发给顶层窗口(PetWidget)以支持窗口拖拽
-    if (QWidget *w = window()) {
-        QCoreApplication::sendEvent(w, event);
-    }
-    QWidget::mouseReleaseEvent(event);
 }
 
 void BongoCatWidget::enterEvent(QEnterEvent *event)

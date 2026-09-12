@@ -5,7 +5,7 @@
 ; =============================================
 
 #define MyAppName "BackPet"
-#define MyAppVersion "0.0.1"
+#define MyAppVersion "0.0.2"
 #define MyAppPublisher "BackCat Project"
 #define MyAppURL "https://github.com/BongoCat/BackPet"
 #define MyAppExeName "BackPet.exe"

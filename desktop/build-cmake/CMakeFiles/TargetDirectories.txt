@@ -1,0 +1,6 @@
+D:/Workspace/test_project/Back-Cat-Project-trae-agent-4vI8Jf/desktop/build-cmake/CMakeFiles/BackPet.dir
+D:/Workspace/test_project/Back-Cat-Project-trae-agent-4vI8Jf/desktop/build-cmake/CMakeFiles/BackPet_qmlimportscan.dir
+D:/Workspace/test_project/Back-Cat-Project-trae-agent-4vI8Jf/desktop/build-cmake/CMakeFiles/edit_cache.dir
+D:/Workspace/test_project/Back-Cat-Project-trae-agent-4vI8Jf/desktop/build-cmake/CMakeFiles/rebuild_cache.dir
+D:/Workspace/test_project/Back-Cat-Project-trae-agent-4vI8Jf/desktop/build-cmake/CMakeFiles/BackPet_autogen_timestamp_deps.dir
+D:/Workspace/test_project/Back-Cat-Project-trae-agent-4vI8Jf/desktop/build-cmake/CMakeFiles/BackPet_autogen.dir

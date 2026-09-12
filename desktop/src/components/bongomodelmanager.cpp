@@ -86,13 +86,7 @@ void BongoModelManager::loadModels()
 {
     m_models.clear();
 
-    // 1. 加载经典小键盘预设 (默认)
-    BongoModel presetDefault = loadPresetFromResources();
-    if (presetDefault.isValid()) {
-        m_models[presetDefault.id] = presetDefault;
-    }
-
-    // 2. 加载 BongoCat 官方 3 套预设模型 (standard/keyboard/gamepad)
+    // 1. 加载 BongoCat 官方 3 套预设模型 (standard/keyboard/gamepad)
     QList<BongoModel> bongoPresets = loadBongoCatPresetModels();
     for (const BongoModel &m : bongoPresets) {
         if (m.isValid() || !m.live2dModelFile.isEmpty()) {
@@ -100,15 +94,13 @@ void BongoModelManager::loadModels()
         }
     }
 
-    // 3. 加载用户自定义模型
+    // 2. 加载用户自定义模型
     loadUserModels();
 
     // 如果当前模型无效，优先使用 BongoCat standard (Live2D)
     if (!m_models.contains(m_currentModelId) && !m_models.isEmpty()) {
         if (m_models.contains("preset_bongocat_standard")) {
             m_currentModelId = "preset_bongocat_standard";
-        } else if (m_models.contains("preset_default_cat")) {
-            m_currentModelId = "preset_default_cat";
         } else {
             m_currentModelId = m_models.firstKey();
         }
@@ -556,7 +548,7 @@ bool BongoModelManager::importModel(const QString &sourcePath, const QString &mo
                         QFile::copy(srcFile + "/" + deepFile, destFile + "/" + deepFile);
                     }
                 } else {
-                    QFile::copy(srcFile, destFile);
+                    QFile::copy(srcEntry, destEntry);
                 }
             }
         } else {

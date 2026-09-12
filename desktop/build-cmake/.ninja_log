@@ -1,0 +1,24 @@
+# ninja log v6
+20	887	8108869938106894	.qt/qml_imports/BackPet_build.cmake	82996b9aa8b7f284
+20	887	8108869938106894	D:/Workspace/test_project/Back-Cat-Project-trae-agent-4vI8Jf/desktop/build-cmake/.qt/qml_imports/BackPet_build.cmake	82996b9aa8b7f284
+888	2778	8108869954698003	BackPet_autogen/timestamp	2a318cc3b5214d3c
+888	2778	8108869954698003	BackPet_autogen/mocs_compilation.cpp	2a318cc3b5214d3c
+888	2778	8108869954698003	D:/Workspace/test_project/Back-Cat-Project-trae-agent-4vI8Jf/desktop/build-cmake/BackPet_autogen/timestamp	2a318cc3b5214d3c
+888	2778	8108869954698003	D:/Workspace/test_project/Back-Cat-Project-trae-agent-4vI8Jf/desktop/build-cmake/BackPet_autogen/mocs_compilation.cpp	2a318cc3b5214d3c
+2789	3539	8108869964546503	BackPet_autogen/EWIEGA46WW/qrc_resources.cpp	287718f45df59099
+2789	3539	8108869964546503	D:/Workspace/test_project/Back-Cat-Project-trae-agent-4vI8Jf/desktop/build-cmake/BackPet_autogen/EWIEGA46WW/qrc_resources.cpp	287718f45df59099
+3595	13597	8108869965356639	CMakeFiles/BackPet.dir/src/petcanvas.cpp.obj	b27ffcabb1d8b35b
+3663	13910	8108869966035435	CMakeFiles/BackPet.dir/src/components/clockwidget.cpp.obj	f9d43fbc69c369af
+3617	14021	8108869965569992	CMakeFiles/BackPet.dir/src/appconfig.cpp.obj	1fc684bfd82bb3f
+3637	14199	8108869965771982	CMakeFiles/BackPet.dir/src/settingsdialog.cpp.obj	478c75a0de9bb326
+3700	15080	8108869966405272	CMakeFiles/BackPet.dir/src/components/todowidget.cpp.obj	ad87b74627bf0338
+3555	15371	8108869964943755	CMakeFiles/BackPet.dir/src/main.cpp.obj	b7674c0207cf644f
+3738	15725	8108869966783878	CMakeFiles/BackPet.dir/src/components/bongomodelmanager.cpp.obj	78b6f18875c2023b
+3778	16309	8108869967188609	CMakeFiles/BackPet.dir/src/components/live2dwidget.cpp.obj	9c267c7405211b2f
+3681	16686	8108869966212676	CMakeFiles/BackPet.dir/src/components/quotewidget.cpp.obj	98781c63c3d46baf
+3719	16730	8108869966586838	CMakeFiles/BackPet.dir/src/components/bongocatwidget.cpp.obj	abc937457e8fa916
+3756	16911	8108869966964082	CMakeFiles/BackPet.dir/src/components/localfileserver.cpp.obj	e010b1ada25bbfce
+3796	17855	8108869967367096	CMakeFiles/BackPet.dir/BackPet_autogen/EWIEGA46WW/qrc_resources.cpp.obj	5c6cd6f87107ed59
+3573	17895	8108869965128285	CMakeFiles/BackPet.dir/src/petwidget.cpp.obj	d78695cae9189654
+3539	19832	8108869964796965	CMakeFiles/BackPet.dir/BackPet_autogen/mocs_compilation.cpp.obj	f7afd5965e27c111
+19832	20319	8108870127717468	D:/Workspace/test_project/Back-Cat-Project-trae-agent-4vI8Jf/desktop/bin/BackPet.exe	37d04c746ee1fc5b
