@@ -6,6 +6,9 @@
 #include "petwidget.h"
 #include "appconfig.h"
 #include "components/localfileserver.h"
+#include "preference/thememanager.h"
+#include "preference/preferencewindow.h"
+#include "preference/pages/catpage.h"
 
 int main(int argc, char *argv[])
 {
@@ -25,19 +28,17 @@ int main(int argc, char *argv[])
 
     // 设置应用信息
     app.setApplicationName("BackPet");
-    app.setApplicationVersion("0.0.2");
+    app.setApplicationVersion("0.1.0");
     app.setOrganizationName("BackPet");
 
     // 加载配置
     AppConfig::instance().load();
 
-    // 加载样式表
-    QFile styleFile(":/assets/styles.qss");
-    if (styleFile.open(QFile::ReadOnly)) {
-        QString style = QString::fromUtf8(styleFile.readAll());
-        app.setStyleSheet(style);
-        styleFile.close();
-    }
+    // 应用主题 (light/dark/auto, 默认 auto)
+    ThemeManager::instance()->applyFromConfig(AppConfig::instance().themeMode());
+
+    // 装配偏好设置页
+    PreferenceWindow::instance()->setPageWidget(PreferenceWindow::CatPage, new CatPage);
 
     // 创建主窗口
     PetWidget w;

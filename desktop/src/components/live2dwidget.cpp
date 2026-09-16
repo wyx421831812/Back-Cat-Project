@@ -114,12 +114,22 @@ Live2DWidget::Live2DWidget(QWidget *parent)
     m_quickWidget->setAttribute(Qt::WA_TranslucentBackground);
     m_quickWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
 
+    // 重要: 必须先连接 statusChanged 再 setSource!
+    // qrc 资源是同步加载的, setSource 内部就会发出 Ready/Error 信号;
+    // 若先 setSource 后 connect, 信号永久丢失, m_webViewObj 将永远为 null,
+    // 页面永远不会加载 (表现为 Live2D 引擎永不就绪 + 白色矩形)。
+    connect(m_quickWidget, &QQuickWidget::statusChanged,
+            this, &Live2DWidget::onQuickWidgetStatusChanged);
+
     m_quickWidget->setSource(QUrl("qrc:/resources/live2d-webview.qml"));
 
     m_quickWidget->setGeometry(0, 0, width(), height());
 
-    connect(m_quickWidget, &QQuickWidget::statusChanged,
-            this, &Live2DWidget::onQuickWidgetStatusChanged);
+    // 兜底: 若信号因任何原因错过, 手动补一次处理 (onQuickWidgetStatusChanged 幂等)
+    if (m_quickWidget->status() == QQuickWidget::Ready)
+        onQuickWidgetStatusChanged(QQuickWidget::Ready);
+    else if (m_quickWidget->status() == QQuickWidget::Error)
+        onQuickWidgetStatusChanged(QQuickWidget::Error);
 #endif
 }
 
@@ -152,6 +162,10 @@ void Live2DWidget::resizeEvent(QResizeEvent *event)
 void Live2DWidget::onQuickWidgetStatusChanged(QQuickWidget::Status status)
 {
     if (status == QQuickWidget::Ready) {
+        // 幂等保护: qrc 同步加载时该槽可能在 connect 期间/兜底调用中已执行过,
+        // 避免重复连接桥接信号、重复加载页面
+        if (m_webViewObj) return;
+
         qDebug() << "Live2D QML loaded successfully";
 
         QObject *rootObj = m_quickWidget->rootObject();
@@ -160,15 +174,23 @@ void Live2DWidget::onQuickWidgetStatusChanged(QQuickWidget::Status status)
             if (m_webViewObj) {
                 qDebug() << "Found QML WebView object";
 
-                // 监听 JS 通过 document.title 发出的事件
-                connect(m_webViewObj, SIGNAL(titleChanged(QString)),
-                        this, SLOT(onWebViewTitleChanged(QString)));
+                // 监听 JS 通过 document.title 发出的事件。
+                // 注意: Qt6 QtWebView 的原生 titleChanged() 是无参信号
+                // (title 需通过属性读取), 按字符串连接 "titleChanged(QString)"
+                // 会失败; 由 QML 根对象声明的 bridgeTitleChanged(QString) 统一转发。
+                if (!connect(rootObj, SIGNAL(bridgeTitleChanged(QString)),
+                             this, SLOT(onWebViewTitleChanged(QString)),
+                             Qt::UniqueConnection)) {
+                    qWarning() << "Live2D: connect bridgeTitleChanged(QString) failed";
+                }
 
                 // 加载合并后的 HTML
                 loadCombinedHtml();
             } else {
                 qWarning() << "Could not find live2dWebView in QML";
             }
+        } else {
+            qWarning() << "Live2D QML root object is null";
         }
     } else if (status == QQuickWidget::Error) {
         qWarning() << "Live2D QML failed to load";
@@ -212,6 +234,7 @@ void Live2DWidget::handleJsEvent(const QString &eventName, const QJsonObject &da
         if (!m_currentModelPath.isEmpty()) {
             loadModel(m_currentModelPath);
         }
+        applyMirror();
     } else if (eventName == QLatin1String("modelLoaded")) {
         int width = data.value("width").toInt();
         int height = data.value("height").toInt();
@@ -232,6 +255,31 @@ void Live2DWidget::setReady(bool ready)
     if (m_ready == ready) return;
     m_ready = ready;
     emit readyChanged(m_ready);
+}
+
+void Live2DWidget::setMirrored(bool on)
+{
+    m_mirrored = on;
+    if (m_ready) {
+        applyMirror();
+    }
+}
+
+void Live2DWidget::applyMirror()
+{
+    if (!m_ready) return;
+
+    // 翻转渲染三层 (背景图 / Live2D canvas / 按键层), transform 原点取中心
+    const QString jsCode = QStringLiteral(
+        "(function(m){"
+        "['bg-layer','app','key-layer'].forEach(function(id){"
+        "var e=document.getElementById(id);"
+        "if(e){e.style.transform=m?'scaleX(-1)':'';"
+        "e.style.transformOrigin='center center';"
+        "}});})(%1);"
+    ).arg(m_mirrored ? QStringLiteral("true") : QStringLiteral("false"));
+
+    runJavaScript(jsCode);
 }
 
 void Live2DWidget::loadCombinedHtml()
@@ -276,9 +324,12 @@ void Live2DWidget::loadCombinedHtml()
     m_webView->setHtml(html, baseUrl);
 #elif defined(USE_QT_WEBVIEW)
     if (!m_webViewObj) return;
-    QMetaObject::invokeMethod(m_webViewObj, "loadHtml",
-                              Q_ARG(QString, html),
-                              Q_ARG(QUrl, baseUrl));
+    bool ok = QMetaObject::invokeMethod(m_webViewObj, "loadHtml",
+                                        Q_ARG(QString, html),
+                                        Q_ARG(QUrl, baseUrl));
+    if (!ok) {
+        qWarning() << "Live2D: invokeMethod(loadHtml) failed on QML WebView";
+    }
 #endif
 
     qDebug() << "Combined HTML with inline JS loaded ("
@@ -468,6 +519,18 @@ void Live2DWidget::setAutoReleaseDelay(int ms)
     QString jsCode = QString(
         "if(window.Live2DAPI) { window.Live2DAPI.setAutoReleaseDelay(%1); }"
     ).arg(ms);
+
+    runJavaScript(jsCode);
+}
+
+void Live2DWidget::setMaxFps(int fps)
+{
+    m_maxFps = qMax(0, fps);
+    if (!m_ready) return;
+
+    QString jsCode = QString(
+        "if(window.Live2DAPI) { window.Live2DAPI.setMaxFps(%1); }"
+    ).arg(m_maxFps);
 
     runJavaScript(jsCode);
 }

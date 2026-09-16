@@ -71,6 +71,10 @@ public:
     void setModelType(PetModelType type);
     PetModelType modelType() const { return m_modelType; }
 
+    // 水平镜像 (仅翻转 3D 模型本体, 对话气泡保持正向)
+    void setMirrored(bool on) { m_mirrored = on; update(); }
+    bool isMirrored() const { return m_mirrored; }
+
     // 动画控制
     void startWagging();
     void stopWagging();
@@ -108,6 +112,7 @@ private:
     // 状态
     PetMood m_mood;
     PetModelType m_modelType;
+    bool m_mirrored = false;
     qreal m_bounceY;
     qreal m_wagAngle;
     qreal m_clapAngle;

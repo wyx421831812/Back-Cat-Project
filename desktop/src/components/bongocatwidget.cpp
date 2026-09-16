@@ -49,6 +49,11 @@ BongoCatWidget::BongoCatWidget(QWidget *parent)
     // L-105: 从配置加载自动释放延迟
     m_autoReleaseDelay = AppConfig::instance().autoReleaseDelay();
 
+    // 猫咪设置: 忽略鼠标 / 鼠标镜像 / 最大帧率
+    m_ignoreMouse = AppConfig::instance().ignoreMouse();
+    m_mouseMirror = AppConfig::instance().mouseMirror();
+    m_maxFps = AppConfig::instance().maxFps();
+
     m_elapsedTimer.start();
 }
 
@@ -70,7 +75,7 @@ void BongoCatWidget::refresh()
 void BongoCatWidget::onShow()
 {
     installHook();
-    m_animationTimer->start(16); // ~60fps
+    m_animationTimer->start(frameIntervalMs()); // 受最大帧率设置约束
     m_elapsedTimer.restart();
     update(); // 立即触发首次绘制
 }
@@ -90,6 +95,13 @@ void BongoCatWidget::loadModel(const BongoModel &model)
     m_model = model;
     m_pressedKeys.clear();
     m_pressedVkCodes.clear();
+
+    // 通知舞台按背景场景自然宽高比调整窗口 (无效背景时舞台保持默认比例)
+    QSize bgSize = model.backgroundImage.size();
+    if (bgSize.isEmpty()) {
+        bgSize = model.coverImage.size();
+    }
+    emit modelBackgroundSize(bgSize);
 
     // 根据模型类型选择渲染方式
     if (shouldUseLive2D()) {
@@ -161,9 +173,8 @@ bool BongoCatWidget::isGamepadConnected() const
 
 void BongoCatWidget::setAutoReleaseDelay(int ms)
 {
+    // 纯运行时下推 (持久化由设置页写 AppConfig 负责, 避免信号回环)
     m_autoReleaseDelay = qMax(0, ms);
-    AppConfig::instance().setAutoReleaseDelay(m_autoReleaseDelay);
-    AppConfig::instance().save();
 #ifdef HAS_LIVE2D_SUPPORT
     if (m_live2dWidget && m_live2dWidget->isReady()) {
         m_live2dWidget->setAutoReleaseDelay(m_autoReleaseDelay);
@@ -174,6 +185,42 @@ void BongoCatWidget::setAutoReleaseDelay(int ms)
 int BongoCatWidget::autoReleaseDelay() const
 {
     return m_autoReleaseDelay;
+}
+
+void BongoCatWidget::setIgnoreMouseEvents(bool ignore)
+{
+    m_ignoreMouse = ignore;
+    if (ignore) {
+        // 立即松开当前由物理鼠标按住的手, 并停止跟随
+        m_leftMouseDown = false;
+        m_rightMouseDown = false;
+        m_targetOffset = QPointF(0, 0);
+#ifdef HAS_LIVE2D_SUPPORT
+        if (m_useLive2D && m_live2dWidget && m_live2dWidget->isReady()) {
+            m_live2dWidget->handleMouseUp(0);
+            m_live2dWidget->handleMouseUp(2);
+        }
+#endif
+    }
+}
+
+void BongoCatWidget::setMouseMirrored(bool on)
+{
+    m_mouseMirror = on;
+}
+
+void BongoCatWidget::setMaxFps(int fps)
+{
+    m_maxFps = qMax(0, fps);
+    // 静态图模式: 调整动画定时器节奏
+    if (!m_useLive2D && m_animationTimer->isActive()) {
+        m_animationTimer->start(frameIntervalMs());
+    }
+#ifdef HAS_LIVE2D_SUPPORT
+    if (m_useLive2D && m_live2dWidget && m_live2dWidget->isReady()) {
+        m_live2dWidget->setMaxFps(m_maxFps);
+    }
+#endif
 }
 
 bool BongoCatWidget::shouldUseLive2D() const
@@ -213,6 +260,22 @@ void BongoCatWidget::switchToLive2D()
             // 标准模型自身也失败(极端情况): 回退到静态图片
             switchToStaticImage();
         });
+
+        // 引擎就绪后推送配置和图片资源。
+        // 注意: 只能连接一次(放在创建分支内), 若放在 loadModel 路径中,
+        // 每次切换模型都会追加一条连接导致 pushImagesToLive2D 被重复执行。
+        connect(m_live2dWidget, &Live2DWidget::readyChanged, this, [this](bool ready) {
+            if (ready) {
+                m_live2dWidget->setAutoReleaseDelay(m_autoReleaseDelay);
+                m_live2dWidget->setMaxFps(m_maxFps);
+                pushImagesToLive2D();
+                applyMirrorToLive2D();
+            }
+        });
+
+        // 转发自然尺寸, PetStage 据此按模型宽高比设定窗口大小
+        connect(m_live2dWidget, &Live2DWidget::modelLoaded,
+                this, &BongoCatWidget::live2dModelLoaded);
     }
 
     // 加载Live2D模型
@@ -221,15 +284,6 @@ void BongoCatWidget::switchToLive2D()
         m_live2dWidget->show();
         m_live2dWidget->lower();          // 放到父窗口底层，让 paintEvent 画的 background/按键图可见
         m_useLive2D = true;
-
-        // L-105: 传递自动释放延迟配置
-        connect(m_live2dWidget, &Live2DWidget::readyChanged, this, [this](bool ready) {
-            if (ready) {
-                m_live2dWidget->setAutoReleaseDelay(m_autoReleaseDelay);
-                // 引擎就绪后，推送背景图和按键图路径到 HTML
-                pushImagesToLive2D();
-            }
-        });
 
         // 如果已经 ready，立即推送
         if (m_live2dWidget->isReady()) {
@@ -251,6 +305,29 @@ void BongoCatWidget::switchToStaticImage()
     m_useLive2D = false;
     update();
 }
+
+void BongoCatWidget::setMirror(bool on)
+{
+    m_mirror = on;
+#ifdef HAS_LIVE2D_SUPPORT
+    if (m_useLive2D) {
+        applyMirrorToLive2D();
+    }
+#endif
+    // 静态图模式由 paintEvent 读取 m_mirror 翻转
+    if (!m_useLive2D) {
+        update();
+    }
+}
+
+#ifdef HAS_LIVE2D_SUPPORT
+void BongoCatWidget::applyMirrorToLive2D()
+{
+    if (m_live2dWidget) {
+        m_live2dWidget->setMirrored(m_mirror);
+    }
+}
+#endif
 
 #ifdef HAS_LIVE2D_SUPPORT
 void BongoCatWidget::pushImagesToLive2D()
@@ -510,6 +587,8 @@ void BongoCatWidget::handleKeyUp(int vkCode)
 
 void BongoCatWidget::handleMouseDown(bool isLeft)
 {
+    // 猫咪设置: 忽略鼠标事件时, 物理鼠标不再驱动手部动作
+    if (m_ignoreMouse) return;
     qDebug() << "[BongoCat] handleMouseDown isLeft=" << isLeft << "useLive2D=" << m_useLive2D;
     if (isLeft) {
         m_leftMouseDown = true;
@@ -539,6 +618,7 @@ void BongoCatWidget::handleMouseDown(bool isLeft)
 
 void BongoCatWidget::handleMouseUp(bool isLeft)
 {
+    if (m_ignoreMouse) return;
     qDebug() << "[BongoCat] handleMouseUp isLeft=" << isLeft << "useLive2D=" << m_useLive2D;
     if (isLeft) {
         m_leftMouseDown = false;
@@ -562,7 +642,7 @@ void BongoCatWidget::handleMouseUp(bool isLeft)
 
 void BongoCatWidget::updateMouseFollow(const QPoint &globalPos)
 {
-    if (!m_mouseFollowEnabled) return;
+    if (!m_mouseFollowEnabled || m_ignoreMouse) return;
 
     QScreen *screen = QGuiApplication::screenAt(globalPos);
     if (!screen) {
@@ -573,8 +653,10 @@ void BongoCatWidget::updateMouseFollow(const QPoint &globalPos)
     qreal xRatio = (globalPos.x() - geo.x()) / static_cast<qreal>(geo.width());
     qreal yRatio = (globalPos.y() - geo.y()) / static_cast<qreal>(geo.height());
 
-    // 映射到 -1.0 ~ 1.0
-    m_targetOffset.setX((xRatio - 0.5) * 2.0);
+    // 映射到 -1.0 ~ 1.0 (鼠标镜像时 X 轴取反)
+    qreal nx = (xRatio - 0.5) * 2.0;
+    if (m_mouseMirror) nx = -nx;
+    m_targetOffset.setX(nx);
     m_targetOffset.setY((yRatio - 0.5) * 2.0);
 }
 
@@ -786,6 +868,12 @@ void BongoCatWidget::paintEvent(QPaintEvent *)
     // 这些图层都在 Live2D HTML 中，C++ 通过 setBackground/setKeyImage 传入
     if (m_useLive2D) {
         return;
+    }
+
+    // 静态图模式的水平镜像: 翻转后续全部图层 (背景/猫咪/按键/按压效果)
+    if (m_mirror) {
+        painter.translate(width(), 0);
+        painter.scale(-1.0, 1.0);
     }
 
     if (hasModelImage) {

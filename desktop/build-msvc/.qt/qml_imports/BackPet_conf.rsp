@@ -1,0 +1,9 @@
+-rootPath
+D:/WorkspaceHome/back_pet/code/desktop
+-cmake-output
+-output-file
+D:/WorkspaceHome/back_pet/code/desktop/build-msvc/.qt/qml_imports/BackPet_conf.cmake
+-importPath
+D:/WorkspaceHome/back_pet/code/desktop/build-msvc
+-importPath
+D:/Qt/6.7.3/msvc2022_64/qml

@@ -1,9 +1,0 @@
--rootPath
-D:/Workspace/test_project/Back-Cat-Project-trae-agent-4vI8Jf/desktop
--cmake-output
--output-file
-D:/Workspace/test_project/Back-Cat-Project-trae-agent-4vI8Jf/desktop/build-cmake/.qt/qml_imports/BackPet_conf.cmake
--importPath
-D:/Workspace/test_project/Back-Cat-Project-trae-agent-4vI8Jf/desktop/build-cmake
--importPath
-D:/Qt/6.7.3/msvc2022_64/qml

@@ -664,8 +664,14 @@ void PetCanvas::paintEvent(QPaintEvent *)
         s.pos.setZ(-x * sinR + z * cosR);
     }
 
-    // 绘制3D模型
+    // 绘制3D模型 (镜像时整体水平翻转; 气泡在 restore 后绘制, 文字保持正向)
+    painter.save();
+    if (m_mirrored) {
+        painter.translate(width(), 0);
+        painter.scale(-1.0, 1.0);
+    }
     sortAndDrawSpheres(painter);
+    painter.restore();
 
     // 绘制对话框
     drawSpeechBubble(painter);

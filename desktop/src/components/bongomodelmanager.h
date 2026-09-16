@@ -88,10 +88,15 @@ public:
     BongoModel getModelById(const QString &id) const;
 
     // 从任意路径导入模型(自动识别格式)
-    bool importModel(const QString &sourcePath, const QString &modelName);
+    // 包含文件格式校验(cat.model3.json 的 Moc/Textures 完整性)、递归复制、
+    // 复制后完整性校验与解析校验; 成功后自动切换到新模型。
+    // 失败时返回 false, 并通过 errorMessage 输出具体原因 (供 UI 提示)。
+    bool importModel(const QString &sourcePath, const QString &modelName,
+                     QString *errorMessage = nullptr);
 
     // 从BongoCat标准文件夹导入
-    bool importBongoCatModel(const QString &sourcePath, const QString &modelName);
+    bool importBongoCatModel(const QString &sourcePath, const QString &modelName,
+                             QString *errorMessage = nullptr);
 
     // 删除自定义模型
     bool deleteModel(const QString &id);
@@ -122,6 +127,13 @@ private:
 
     // 加载按键图片 (left-keys/ 或 keys/)
     void loadKeyImages(const QString &keysDir, BongoModel &model);
+
+    // 校验待导入模型目录的文件格式 (cover.png / model3.json 的 Moc+Textures)
+    static bool validateModelSource(const QString &sourcePath, QString *errorMessage);
+
+    // 递归复制目录(任意深度)并逐文件校验大小
+    static bool copyDirRecursive(const QString &srcPath, const QString &destPath,
+                                 QString *errorMessage);
 
     void loadUserModels();
     void ensureDirectories();

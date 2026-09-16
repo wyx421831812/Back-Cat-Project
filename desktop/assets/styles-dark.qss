@@ -1,0 +1,312 @@
+/* ============================================================
+   BackPet 暗色主题 (黄 #FBBF24 / 紫 #8B5CF6)
+   底色 #1E1B2E / 内容区 #27233A / 卡片 #2A2640
+   ============================================================ */
+
+QWidget {
+    font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+    font-size: 13px;
+    color: #EDEAFB;
+    background: transparent;
+}
+
+/* ---------------- 顶层窗口 ---------------- */
+#preferenceWindow {
+    background: #1E1B2E;
+}
+#preferenceSidebar {
+    background: #1E1B2E;
+    border: none;
+}
+#preferenceContent {
+    background: #27233A;
+}
+QDialog {
+    background: #27233A;
+}
+QMessageBox {
+    background: #2A2640;
+}
+
+/* ---------------- 菜单 / 提示 ---------------- */
+QMenu {
+    background: #2A2640;
+    border: 1px solid #3A3556;
+    border-radius: 8px;
+    padding: 6px;
+}
+QMenu::item {
+    padding: 7px 28px 7px 16px;
+    border-radius: 6px;
+    color: #EDEAFB;
+}
+QMenu::item:selected {
+    background: #38325A;
+    color: #FBBF24;
+}
+QMenu::item:checked {
+    color: #FBBF24;
+    font-weight: 600;
+}
+QMenu::separator {
+    height: 1px;
+    background: #3A3556;
+    margin: 6px 10px;
+}
+QMenu::right-arrow {
+    width: 10px;
+    height: 10px;
+}
+
+QToolTip {
+    background: #EDEAFB;
+    color: #27233A;
+    border: none;
+    border-radius: 6px;
+    padding: 5px 9px;
+}
+
+/* ---------------- 标签 ---------------- */
+QLabel {
+    color: #EDEAFB;
+    background: transparent;
+}
+QLabel#proListTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: #C9C5E0;
+}
+QLabel#proItemTitle {
+    font-size: 13px;
+    font-weight: 500;
+    color: #EDEAFB;
+}
+QLabel#proItemDesc {
+    font-size: 12px;
+    color: #8A86A6;
+}
+QLabel#appNameLabel {
+    font-size: 13px;
+    font-weight: 700;
+    color: #EDEAFB;
+}
+
+/* ---------------- 分组卡片 ---------------- */
+QFrame#proListItem {
+    background: #2A2640;
+    border: 1px solid #3A3556;
+    border-radius: 10px;
+}
+QFrame#proListItem:hover {
+    border-color: #5B4B9E;
+}
+
+/* ---------------- 按钮 ---------------- */
+QPushButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #FBBF24, stop:1 #8B5CF6);
+    color: #FFFFFF;
+    border: none;
+    padding: 7px 18px;
+    border-radius: 8px;
+    font-weight: 600;
+}
+QPushButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #F59E0B, stop:1 #A78BFA);
+}
+QPushButton:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #D97706, stop:1 #7C3AED);
+}
+QPushButton:disabled {
+    background: #35304E;
+    color: #6F6B8C;
+}
+QPushButton#secondaryBtn {
+    background: #35304E;
+    color: #C9C5E0;
+}
+QPushButton#secondaryBtn:hover {
+    background: #3F3960;
+    color: #FBBF24;
+}
+QPushButton#ghostBtn {
+    background: transparent;
+    color: #C4B5FD;
+    border: 1px solid #4A4470;
+}
+QPushButton#ghostBtn:hover {
+    background: #342E54;
+    border-color: #8B5CF6;
+}
+QPushButton#iconCircleBtn {
+    background: rgba(42, 38, 64, 88%);
+    border: 1px solid #3A3556;
+    border-radius: 14px;
+    padding: 0px;
+}
+QPushButton#iconCircleBtn:hover {
+    background: #35304E;
+    border-color: #8B5CF6;
+}
+
+/* ---------------- 输入控件 ---------------- */
+QLineEdit, QSpinBox, QComboBox {
+    background: #312C4B;
+    border: 1px solid #464066;
+    border-radius: 8px;
+    padding: 5px 10px;
+    color: #EDEAFB;
+    selection-background-color: #8B5CF6;
+    selection-color: #FFFFFF;
+}
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
+    border: 1px solid #8B5CF6;
+}
+QLineEdit:disabled, QSpinBox:disabled {
+    background: #2A2640;
+    color: #6F6B8C;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 26px;
+}
+QComboBox::down-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #FBBF24;
+    margin-right: 8px;
+}
+QComboBox QAbstractItemView {
+    background: #2A2640;
+    border: 1px solid #3A3556;
+    border-radius: 8px;
+    padding: 4px;
+    outline: none;
+}
+QComboBox QAbstractItemView::item {
+    min-height: 28px;
+    border-radius: 6px;
+    padding-left: 10px;
+    color: #EDEAFB;
+}
+QComboBox QAbstractItemView::item:selected {
+    background: #38325A;
+    color: #FBBF24;
+}
+
+QSpinBox::up-button, QSpinBox::down-button {
+    width: 0px;
+    border: none;
+}
+
+/* ---------------- 滑块 ---------------- */
+QSlider::groove:horizontal {
+    height: 6px;
+    background: #3A3556;
+    border-radius: 3px;
+}
+QSlider::sub-page:horizontal {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #FBBF24, stop:1 #8B5CF6);
+    border-radius: 3px;
+    height: 6px;
+}
+QSlider::handle:horizontal {
+    background: #2A2640;
+    border: 2px solid #FBBF24;
+    width: 16px;
+    height: 16px;
+    margin: -7px 0;
+    border-radius: 10px;
+}
+QSlider::handle:horizontal:hover {
+    background: #3A3556;
+    border-color: #F59E0B;
+}
+
+/* ---------------- 滚动条 ---------------- */
+QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 4px 2px;
+}
+QScrollBar::handle:vertical {
+    background: #44406A;
+    border-radius: 4px;
+    min-height: 36px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #8B5CF6;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+QScrollBar:horizontal {
+    background: transparent;
+    height: 10px;
+    margin: 2px 4px;
+}
+QScrollBar::handle:horizontal {
+    background: #44406A;
+    border-radius: 4px;
+    min-width: 36px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #8B5CF6;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+/* ---------------- 列表(任务签等) ---------------- */
+QListWidget {
+    background: transparent;
+    border: none;
+    outline: none;
+}
+QListWidget::item {
+    background: #2A2640;
+    border: 1px solid #3A3556;
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+}
+QListWidget::item:hover {
+    border-color: #5B4B9E;
+}
+QListWidget::item:selected {
+    border-color: #8B5CF6;
+    background: #342E54;
+    color: #EDEAFB;
+}
+
+/* ---------------- 桌宠既有挂件(暗色下提亮) ---------------- */
+QWidget#clockWidget {
+    background: rgba(42, 38, 64, 210);
+    border-radius: 15px;
+}
+QLabel#clockTimeLabel {
+    font-size: 28px;
+    font-weight: bold;
+    color: #FBBF24;
+}
+QLabel#clockDateLabel {
+    font-size: 12px;
+    color: #B7B3CE;
+}
+QWidget#quoteWidget {
+    background: rgba(109, 40, 217, 190);
+    border-radius: 15px;
+}
+QLabel#quoteTextLabel {
+    font-size: 14px;
+    color: #FFFFFF;
+    font-style: italic;
+}
+QLabel#quoteAuthorLabel {
+    font-size: 11px;
+    color: rgba(237, 234, 251, 200);
+}

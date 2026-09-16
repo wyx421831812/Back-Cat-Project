@@ -1,0 +1,24 @@
+# ninja log v6
+25	742	8109717328258913	.qt/qml_imports/BackPet_build.cmake	3faea3d5610e250a
+25	742	8109717328258913	D:/WorkspaceHome/back_pet/code/desktop/build-msvc/.qt/qml_imports/BackPet_build.cmake	3faea3d5610e250a
+743	3641	8109717355537010	BackPet_autogen/timestamp	75fcfbd1928bd2fc
+743	3641	8109717355537010	BackPet_autogen/mocs_compilation.cpp	75fcfbd1928bd2fc
+743	3641	8109717355537010	D:/WorkspaceHome/back_pet/code/desktop/build-msvc/BackPet_autogen/timestamp	75fcfbd1928bd2fc
+743	3641	8109717355537010	D:/WorkspaceHome/back_pet/code/desktop/build-msvc/BackPet_autogen/mocs_compilation.cpp	75fcfbd1928bd2fc
+3662	4909	8109717369687539	BackPet_autogen/EWIEGA46WW/qrc_resources.cpp	ccfb2d2741986304
+3662	4909	8109717369687539	D:/WorkspaceHome/back_pet/code/desktop/build-msvc/BackPet_autogen/EWIEGA46WW/qrc_resources.cpp	ccfb2d2741986304
+4956	21477	8109717370686793	CMakeFiles/BackPet.dir/src/appconfig.cpp.obj	f1f86cdcc92880c3
+5056	21918	8109717371687545	CMakeFiles/BackPet.dir/BackPet_autogen/EWIEGA46WW/qrc_resources.cpp.obj	9f5e8ba65674b7e1
+4945	24233	8109717370582168	CMakeFiles/BackPet.dir/src/petcanvas.cpp.obj	be1eedab1dc34e81
+4991	24729	8109717371045173	CMakeFiles/BackPet.dir/src/components/quotewidget.cpp.obj	72ccd091dbc0d940
+4982	24739	8109717370946383	CMakeFiles/BackPet.dir/src/components/clockwidget.cpp.obj	559e4aab6d6b1da1
+5023	25114	8109717371354311	CMakeFiles/BackPet.dir/src/components/bongomodelmanager.cpp.obj	164072d4e6b9ad01
+5035	25667	8109717371483450	CMakeFiles/BackPet.dir/src/components/localfileserver.cpp.obj	e20945e0f3e6942
+4969	25881	8109717370825048	CMakeFiles/BackPet.dir/src/settingsdialog.cpp.obj	ab347d9a6687ef7d
+5003	27141	8109717371160542	CMakeFiles/BackPet.dir/src/components/todowidget.cpp.obj	2121d7d44657d1dc
+5046	27588	8109717371589397	CMakeFiles/BackPet.dir/src/components/live2dwidget.cpp.obj	75f242bb32b94d9b
+4922	28210	8109717370349592	CMakeFiles/BackPet.dir/src/main.cpp.obj	7b5333aae6dabd27
+5013	28378	8109717371263918	CMakeFiles/BackPet.dir/src/components/bongocatwidget.cpp.obj	4275f64a3c2f9583
+4933	29358	8109717370463593	CMakeFiles/BackPet.dir/src/petwidget.cpp.obj	8a1b36fdc898dd1b
+4909	30252	8109717370213610	CMakeFiles/BackPet.dir/BackPet_autogen/mocs_compilation.cpp.obj	185ca2445e838202
+30252	31326	8109717623644879	D:/WorkspaceHome/back_pet/code/desktop/bin/BackPet.exe	e49dc5f5c0e43904

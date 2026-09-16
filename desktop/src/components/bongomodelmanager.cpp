@@ -2,6 +2,7 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
 #include <QRandomGenerator>
 #include <QStandardPaths>
 
@@ -393,6 +394,17 @@ BongoModel BongoModelManager::loadBongoCatFormat(const QString &dirPath)
                            << dirPath + "/" + mocFile;
                 return BongoModel(); // 无效模型
             }
+
+            // 校验纹理文件是否齐全 (纹理缺失会导致 Live2D 加载失败,
+            // 应用自动回退到标准模型, 用户表现为"切换后跳回经典模型")
+            for (const QJsonValue &tex : textures) {
+                QString texPath = tex.toString();
+                if (!texPath.isEmpty() && !QFile::exists(dirPath + "/" + texPath)) {
+                    qWarning() << "[BongoModelManager] model missing texture, marking invalid:"
+                               << dirPath + "/" + texPath;
+                    return BongoModel(); // 无效模型
+                }
+            }
         }
     }
 
@@ -505,58 +517,133 @@ BongoModel BongoModelManager::getModelById(const QString &id) const
     return BongoModel();
 }
 
-bool BongoModelManager::importModel(const QString &sourcePath, const QString &modelName)
+bool BongoModelManager::validateModelSource(const QString &sourcePath, QString *errorMessage)
 {
-    QDir sourceDir(sourcePath);
-    if (!sourceDir.exists()) return false;
+    auto fail = [errorMessage](const QString &msg) {
+        if (errorMessage) *errorMessage = msg;
+        return false;
+    };
 
-    // 检查是否有cover.png（在根目录或resources目录下）
+    QDir sourceDir(sourcePath);
+    if (!sourceDir.exists()) {
+        return fail(QStringLiteral("源目录不存在: %1").arg(sourcePath));
+    }
+
+    // 必须有 cover.png (根目录或 resources/ 下)
     bool hasCover = QFile::exists(sourcePath + "/cover.png") ||
                     QFile::exists(sourcePath + "/resources/cover.png");
-    if (!hasCover) return false;
+    if (!hasCover) {
+        return fail(QStringLiteral("未找到 cover.png (应在模型根目录或 resources/ 目录下)"));
+    }
 
-    // 生成唯一ID
-    QString modelId = "user_" + QString::number(QDateTime::currentMSecsSinceEpoch());
-    QString destPath = userModelsDirectory() + "/" + modelId;
+    // BongoCat 标准格式 (含 cat.model3.json) 校验 Live2D 核心文件完整性
+    QString model3Path = sourcePath + "/cat.model3.json";
+    if (QFile::exists(model3Path)) {
+        QFile file(model3Path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            return fail(QStringLiteral("无法读取 cat.model3.json: %1").arg(file.errorString()));
+        }
+        QJsonParseError parseErr;
+        QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseErr);
+        file.close();
+        if (parseErr.error != QJsonParseError::NoError || !doc.isObject()) {
+            return fail(QStringLiteral("cat.model3.json 解析失败: %1").arg(parseErr.errorString()));
+        }
+        QJsonObject refs = doc.object().value("FileReferences").toObject();
 
-    QDir destDir;
-    if (!destDir.mkpath(destPath)) return false;
+        // Moc (.moc3) 必须存在
+        QString moc = refs.value("Moc").toString();
+        if (moc.isEmpty()) {
+            return fail(QStringLiteral("cat.model3.json 缺少 FileReferences.Moc 字段, "
+                                       "不是有效的 Live2D 模型"));
+        }
+        if (!QFile::exists(sourcePath + "/" + moc)) {
+            return fail(QStringLiteral("缺少 Live2D 核心文件: %1").arg(moc));
+        }
 
-    // 复制整个目录
-    QDir srcDir(sourcePath);
-    QStringList allFiles = srcDir.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
-
-    for (const QString &entry : allFiles) {
-        QString srcEntry = sourcePath + "/" + entry;
-        QString destEntry = destPath + "/" + entry;
-
-        QFileInfo fi(srcEntry);
-        if (fi.isDir()) {
-            // 递归复制子目录
-            QDir().mkpath(destEntry);
-            QDir subSrc(srcEntry);
-            QStringList subFiles = subSrc.entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
-            for (const QString &subFile : subFiles) {
-                QString srcFile = srcEntry + "/" + subFile;
-                QString destFile = destEntry + "/" + subFile;
-                if (QFileInfo(srcFile).isDir()) {
-                    // 更深层的目录
-                    QDir().mkpath(destFile);
-                    QDir deepSrc(srcFile);
-                    QStringList deepFiles = deepSrc.entryList(QDir::Files);
-                    for (const QString &deepFile : deepFiles) {
-                        QFile::copy(srcFile + "/" + deepFile, destFile + "/" + deepFile);
-                    }
-                } else {
-                    QFile::copy(srcEntry, destEntry);
-                }
+        // Textures 必须全部存在 (纹理缺失会导致 Live2D 加载失败)
+        const QJsonArray textures = refs.value("Textures").toArray();
+        for (const QJsonValue &tex : textures) {
+            QString texPath = tex.toString();
+            if (!texPath.isEmpty() && !QFile::exists(sourcePath + "/" + texPath)) {
+                return fail(QStringLiteral("缺少模型纹理文件: %1").arg(texPath));
             }
-        } else {
-            QFile::copy(srcEntry, destEntry);
         }
     }
 
-    // 创建model.json
+    return true;
+}
+
+bool BongoModelManager::copyDirRecursive(const QString &srcPath, const QString &destPath,
+                                         QString *errorMessage)
+{
+    QDir srcDir(srcPath);
+    if (!srcDir.exists()) {
+        if (errorMessage) *errorMessage = QStringLiteral("源目录不存在: %1").arg(srcPath);
+        return false;
+    }
+    if (!QDir().mkpath(destPath)) {
+        if (errorMessage) *errorMessage = QStringLiteral("无法创建目录: %1").arg(destPath);
+        return false;
+    }
+
+    // 递归枚举所有文件 (任意目录深度), 修复旧实现只支持 3 层目录
+    // 且复制二级文件时误用目录路径导致资源丢失的缺陷
+    QDirIterator it(srcPath, QDir::Files | QDir::NoDotAndDotDot,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        QString srcFile = it.next();
+        QFileInfo srcInfo(srcFile);
+        QString destFile = destPath + "/" + srcDir.relativeFilePath(srcFile);
+
+        if (!QDir().mkpath(QFileInfo(destFile).absolutePath())) {
+            if (errorMessage) *errorMessage = QStringLiteral("无法创建目录: %1")
+                    .arg(QFileInfo(destFile).absolutePath());
+            return false;
+        }
+        if (!QFile::copy(srcFile, destFile)) {
+            if (errorMessage) *errorMessage = QStringLiteral("%1 -> %2").arg(srcFile, destFile);
+            return false;
+        }
+        // 校验复制完整性 (大小一致)
+        if (QFile(destFile).size() != srcInfo.size()) {
+            if (errorMessage) *errorMessage = QStringLiteral("复制不完整: %1").arg(srcFile);
+            return false;
+        }
+    }
+    return true;
+}
+
+bool BongoModelManager::importModel(const QString &sourcePath, const QString &modelName,
+                                    QString *errorMessage)
+{
+    auto fail = [errorMessage](const QString &msg) {
+        if (errorMessage) *errorMessage = msg;
+        qWarning() << "[BongoModelManager] import failed:" << msg;
+        return false;
+    };
+
+    // === 1. 文件格式校验 ===
+    QString validateErr;
+    if (!validateModelSource(sourcePath, &validateErr)) {
+        return fail(validateErr);
+    }
+
+    // === 2. 递归复制模型文件 ===
+    QString modelId = "user_" + QString::number(QDateTime::currentMSecsSinceEpoch());
+    QString destPath = userModelsDirectory() + "/" + modelId;
+
+    if (QDir(destPath).exists()) {
+        return fail(QStringLiteral("目标目录已存在, 请重试: %1").arg(destPath));
+    }
+
+    QString copyErr;
+    if (!copyDirRecursive(sourcePath, destPath, &copyErr)) {
+        QDir(destPath).removeRecursively(); // 清理不完整副本
+        return fail(QStringLiteral("复制模型文件失败: %1").arg(copyErr));
+    }
+
+    // === 3. 写入 model.json ===
     QJsonObject config;
     config["id"] = modelId;
     config["name"] = modelName;
@@ -564,20 +651,29 @@ bool BongoModelManager::importModel(const QString &sourcePath, const QString &mo
     config["sourceFormat"] = "auto";
 
     QFile configFile(destPath + "/model.json");
-    if (configFile.open(QIODevice::WriteOnly)) {
-        QJsonDocument doc(config);
-        configFile.write(doc.toJson());
-        configFile.close();
+    if (!configFile.open(QIODevice::WriteOnly)) {
+        QDir(destPath).removeRecursively();
+        return fail(QStringLiteral("写入 model.json 失败: %1").arg(configFile.errorString()));
+    }
+    configFile.write(QJsonDocument(config).toJson());
+    configFile.close();
+
+    // === 4. 重新加载并校验模型数据解析结果 ===
+    loadModels();
+    if (!m_models.contains(modelId)) {
+        QDir(destPath).removeRecursively();
+        return fail(QStringLiteral("模型导入后解析失败, 请检查模型文件是否完整"));
     }
 
-    // 重新加载
-    loadModels();
+    // === 5. 导入成功, 自动切换到新导入的模型 ===
+    setCurrentModel(modelId);
     return true;
 }
 
-bool BongoModelManager::importBongoCatModel(const QString &sourcePath, const QString &modelName)
+bool BongoModelManager::importBongoCatModel(const QString &sourcePath, const QString &modelName,
+                                            QString *errorMessage)
 {
-    return importModel(sourcePath, modelName);
+    return importModel(sourcePath, modelName, errorMessage);
 }
 
 bool BongoModelManager::deleteModel(const QString &id)

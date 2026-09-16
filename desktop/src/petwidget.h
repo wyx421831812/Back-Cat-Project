@@ -5,6 +5,7 @@
 #include <QSystemTrayIcon>
 #include <QMenu>
 #include <QStackedWidget>
+#include <QTimer>
 #include "petcanvas.h"
 #include "appconfig.h"
 
@@ -12,6 +13,7 @@ class ClockWidget;
 class QuoteWidget;
 class TodoWidget;
 class BongoCatWidget;
+class PetStage;
 
 /**
  * @brief 主窗口 - 无边框透明置顶桌面宠物
@@ -39,6 +41,8 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void contextMenuEvent(QContextMenuEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
+    void enterEvent(QEnterEvent *event) override;
+    void leaveEvent(QEvent *event) override;
 
     // Windows 原生事件 (点击穿透)
 #ifdef Q_OS_WIN
@@ -53,6 +57,15 @@ private:
     void updateClickThrough();
     void updateAlwaysOnTop();
     void updateOpacity();
+    void resizeForStage(const QSize &size);
+    void resizeForAuxWidget();
+    void updateWindowMask();
+    // 原生表面(HWND) (重新)创建后, 重新套用穿透/半透明等直接改 HWND 的样式
+    void reapplyNativeExtras();
+    // 保持在屏幕内: 将当前窗口几何夹取到所在屏幕可用区域
+    void clampIntoScreen();
+    // 应用 cat.model 分组的运行时设置到渲染部件
+    void applyModelRuntimeSettings();
 
     // 组件切换
     void switchToPet();
@@ -94,6 +107,7 @@ private:
     QuoteWidget *m_quoteWidget;
     TodoWidget *m_todoWidget;
     BongoCatWidget *m_bongoCatWidget;
+    PetStage *m_stage;
 
     // 系统托盘
     QSystemTrayIcon *m_trayIcon;
@@ -102,13 +116,26 @@ private:
     QMenu *m_trayBongoModelMenu;
     QMenu *m_contextBongoModelMenu;
 
-    // 组件索引
+    // 鼠标移入隐藏 (cat.window.hideOnHover)
+    QTimer *m_hoverHideTimer = nullptr;
+    bool m_hiddenByHover = false;
+
+    // 不透明度曾 <100%: 回 100% 时需重建 HWND 清除常量 alpha (LWA_ALPHA),
+    // 否则窗口会一直停留在上次的半透明状态
+    bool m_opacityReduced = false;
+
+    // HWND 句柄看门狗: Qt (如 QWebEngineView 初始化) 可能悄悄重建原生窗口,
+    // 周期性比对句柄, 变化后重套穿透/半透明等直接改 HWND 的样式
+    QTimer *m_nativeWatchTimer = nullptr;
+    WId m_lastNativeHwnd = 0;
+    void checkNativeWindowRecreated();
+
+    // 组件索引 (0 是统一舞台 PetStage; 时钟/格言/待办在 Task 11/12 迁出)
     enum ComponentIndex {
-        PetComponent = 0,
+        StageComponent = 0,
         ClockComponent = 1,
         QuoteComponent = 2,
-        TodoComponent = 3,
-        BongoCatComponent = 4
+        TodoComponent = 3
     };
 
 private slots:

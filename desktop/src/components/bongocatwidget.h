@@ -57,6 +57,18 @@ public:
     void setAutoReleaseDelay(int ms);
     int autoReleaseDelay() const;
 
+    // 猫咪设置-模型设置: 忽略物理鼠标事件 (键盘/手柄仍响应)
+    void setIgnoreMouseEvents(bool ignore);
+    bool ignoreMouseEvents() const { return m_ignoreMouse; }
+
+    // 鼠标跟随水平镜像
+    void setMouseMirrored(bool on);
+    bool isMouseMirrored() const { return m_mouseMirror; }
+
+    // 最大帧率 (0=不限; Live2D 下发 JS 节流, 静态模式调整动画定时器)
+    void setMaxFps(int fps);
+    int maxFps() const { return m_maxFps; }
+
     // Live2D支持
     bool hasLive2DSupport() const;
     bool isUsingLive2D() const;
@@ -67,6 +79,16 @@ public:
 
     // L-104: 手柄模式下当前是否有手柄连接 (供设置界面判断)
     bool isGamepadConnected() const;
+
+    // 水平镜像 (Live2D 走 CSS 翻转, 静态图走 QPainter 翻转)
+    void setMirror(bool on);
+    bool isMirrored() const { return m_mirror; }
+
+signals:
+    // Live2D 模型加载完成, 携带自然像素尺寸 (供 PetStage 计算窗口尺寸)
+    void live2dModelLoaded(int width, int height);
+    // 模型元数据就绪: 背景(键盘场景)自然像素尺寸, 无效时传 QSize()
+    void modelBackgroundSize(const QSize &size);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -113,6 +135,8 @@ private:
 #ifdef HAS_LIVE2D_SUPPORT
     // 将背景图和按键图路径推送到 Live2D HTML
     void pushImagesToLive2D();
+    // 将镜像状态推送到 Live2D HTML
+    void applyMirrorToLive2D();
 #endif
 
     // L-104: 手柄轮询 (Windows XInput)
@@ -155,6 +179,15 @@ private:
     quint32 m_lastGamepadButtons = 0;
     double m_lastStickLX = 0, m_lastStickLY = 0;
     double m_lastStickRX = 0, m_lastStickRY = 0;
+
+    // 水平镜像
+    bool m_mirror = false;
+
+    // 猫咪设置-模型设置
+    bool m_ignoreMouse = false;   // 忽略物理鼠标事件
+    bool m_mouseMirror = false;   // 鼠标跟随 X 轴镜像
+    int  m_maxFps = 0;            // 0 = 不限
+    int  frameIntervalMs() const { return m_maxFps > 0 ? qMax(1, 1000 / m_maxFps) : 16; }
 
     // Live2D 渲染相关
     bool m_useLive2D = false;

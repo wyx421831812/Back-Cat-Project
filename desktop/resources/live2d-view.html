@@ -65,17 +65,22 @@
     let autoReleaseDelay = 100;
 
     // === L-102/L-103: 手部/鼠标按键状态追踪 ===
-    // leftHandDown/rightHandDown 对应 BongoCat 官方参数 CatParamLeftHandDown/CatParamRightHandDown
-    // (键盘按键、手柄按键都会驱动这两个状态)
+    // leftHandDown/rightHandDown 每帧由 pressedKeyTimers + 鼠标状态计算得出,
+    // 对应官方参数 CatParamLeftHandDown/CatParamRightHandDown。
     let leftHandDown = false;
     let rightHandDown = false;
-    let leftHandReleaseTime = 0;
-    let rightHandReleaseTime = 0;
-    let leftHandPendingRelease = false;
-    let rightHandPendingRelease = false;
+    // 按下中的键: 规范键名 -> { raw, timer }
+    // 对齐官方 Windows 行为 (useDevice.ts handleAutoRelease):
+    //   每次 keydown 立即按下并挂 autoReleaseDelay 兜底定时器, 即使 keyup
+    //   完全丢失 (Win 键 / Ctrl+Alt+Del / UAC / 全屏游戏独占切换) 到点也强制抬手;
+    //   重复 keydown 重置定时器 (长按期间手保持按压)。
+    const pressedKeyTimers = {};
     // 鼠标左右键独立状态 (仅 standard 模型有 ParamMouseLeftDown/RightDown 参数)
     let mouseLeftDown = false;
     let mouseRightDown = false;
+    // 模型是否自带逐键键帽气泡 ArtMesh (星见雅骨架等改模):
+    // 探测到任意逐键参数时, HTML 层不再叠加键帽图, 避免与模型内置气泡重影
+    let modelHasBuiltinKeyArt = false;
 
     // === L-101: 鼠标位置 (屏幕归一化坐标 0~1, 由 C++ 端从 [-1,1] 转换) ===
     // 参考 BongoCat useModel.ts handleMouseMove:
@@ -84,6 +89,10 @@
     let targetMouseYRatio = 0.5;
     let currentMouseXRatio = 0.5;
     let currentMouseYRatio = 0.5;
+    // 内置逐键艺术模型 (星见雅骨架等) 专用: 键盘激活时设备侧 (鼠标垫发光/左手
+    // 位置) 的等效坐标, 与驱动头眼的 currentMouse*Ratio 分离, 可单独归中
+    let handArtXRatio = 0.5;
+    let handArtYRatio = 0.5;
 
     // === L-104: 手柄 (摇杆参数 + 按键参数) ===
     let stickLX = 0, stickLY = 0, stickRX = 0, stickRY = 0;
@@ -209,6 +218,30 @@
     // 右手按键: B(1)/Y(3)/RB(5)/RT(7)/D-Right(15)/Start(9)
     const GAMEPAD_RIGHT_BUTTONS = new Set([1, 3, 5, 7, 8, 9, 15]);
 
+    // ==================================================
+    // === 社区改模模型的逐键参数 (星见雅骨架等) ===
+    // 官方标准模型只有 CatParamLeftHandDown (手只做"按下"动作, 不移动位置);
+    // 社区"星见雅骨架"模型额外提供逐键参数: 参数=1 时左手滑到对应键帽,
+    // 全部=0 时左手回到待机位。键名为 normalizeKey 之后的规范名。
+    // 注: 模型参数 F1 的名字是 "F" (字母F); 数字行参数为 F0,F2..F5 (1,3,4,5,6),
+    //     数字 2 无独立参数, 就近映射 F0。
+    const KEY_TO_PARAM = {
+        'KeyQ': 'Q1', 'KeyW': 'W1', 'KeyE': 'E1', 'KeyR': 'R1', 'KeyT': 'T1',
+        'KeyA': 'A1', 'KeyS': 'S1', 'KeyD': 'D1', 'KeyF': 'F1', 'KeyG': 'G1',
+        'KeyZ': 'Z1', 'KeyX': 'X1', 'KeyC': 'C1', 'KeyV': 'V1', 'KeyB': 'B1',
+        'Digit1': 'F0', 'Digit2': 'F0', 'Digit3': 'F2', 'Digit4': 'F3',
+        'Digit5': 'F4', 'Digit6': 'F5',
+        'Enter': 'Enter1',
+        'Control': 'Ctrl', 'Shift': 'Shift', 'Alt': 'Alt',
+        'Space': 'Space'
+    };
+    // 该模型全部左手键位参数 (每帧把未激活的归 0, 防止残留)
+    const ALL_HAND_KEY_PARAMS = [
+        'Q1', 'W1', 'E1', 'R1', 'T1', 'A1', 'S1', 'D1', 'F1', 'G1',
+        'Z1', 'X1', 'C1', 'V1', 'B1', 'F0', 'F2', 'F3', 'F4', 'F5',
+        'Enter1', 'Ctrl', 'Shift', 'Alt', 'Space'
+    ];
+
     // === 初始化入口 (依赖 CDN/local 加载完毕后由 onload 回调触发) ===
     function initLive2dCore() {
         if (coreReady) return;
@@ -333,6 +366,14 @@
         var sh = app.screen.height;
         // 与官方 BongoCat (src/utils/live2d.ts resizeModel) 完全一致:
         //   scale = min(sx, sy); anchor = 0.5; 模型中心对准窗口中心
+        // 关键: PIXI 显示对象的 width/height = 原始尺寸 × 当前 scale。
+        // 必须先把 scale 复位为 1 再读取原始尺寸, 否则每次窗口 resize 都会得到
+        //   scale_new = scale_fit / scale_old
+        // 模型加载完成后 scale_old = scale_fit, 任何一次多余的 resize 事件
+        // (如设置窗口重建原生窗口) 都会把 scale 变成 1.0, 导致模型按画布
+        // 原始尺寸渲染, 远超窗口大小 (模型异常变大的根因)。
+        model.scale.set(1);
+        if (model.width <= 0 || model.height <= 0) return;
         var scale = Math.min(sw / model.width, sh / model.height);
         model.scale.set(scale);
         model.anchor.set(0.5);
@@ -355,15 +396,23 @@
         if (!model) return;
         // 重置参数存在性缓存 (换模型后参数集合可能变化)
         Object.keys(paramExists).forEach(function(k) { delete paramExists[k]; });
+        // 探测模型是否自带逐键键帽气泡 (此时新模型 coreModel 已就绪):
+        // 存在任意逐键参数即视为骨架自带气泡, HTML 层键帽图让位
+        modelHasBuiltinKeyArt = false;
+        for (var bki = 0; bki < ALL_HAND_KEY_PARAMS.length; bki++) {
+            if (hasParam(ALL_HAND_KEY_PARAMS[bki])) { modelHasBuiltinKeyArt = true; break; }
+        }
+        console.log('[Live2D] model builtin key-art bubble:', modelHasBuiltinKeyArt);
 
         // L-101: 鼠标位置回到中心
         targetMouseXRatio = currentMouseXRatio = 0.5;
         targetMouseYRatio = currentMouseYRatio = 0.5;
+        handArtXRatio = handArtYRatio = 0.5;
 
-        // L-102/L-103: 手部状态
+        // L-102/L-103: 手部状态 + 释放所有残留按键与键帽图
         leftHandDown = rightHandDown = false;
-        leftHandPendingRelease = rightHandPendingRelease = false;
         mouseLeftDown = mouseRightDown = false;
+        releaseAllKeys();
 
         // L-104: 手柄状态
         stickLX = stickLY = stickRX = stickRY = 0;
@@ -392,6 +441,10 @@
             'CatParamStickShowLeftHand', 'CatParamStickShowRightHand',
             'CatParamStickLeftDown', 'CatParamStickRightDown'
         ];
+        // 逐键参数 (星见雅骨架等) 一并归零, 防止换模型/复位后手停在某个键位
+        for (var rpi = 0; rpi < ALL_HAND_KEY_PARAMS.length; rpi++) {
+            params.push(ALL_HAND_KEY_PARAMS[rpi]);
+        }
         for (var i = 0; i < params.length; i++) {
             try { model.internalModel.coreModel.setParameterValueById(params[i], 0); } catch (e) {}
         }
@@ -437,27 +490,36 @@
     }
     // 注意: getParameterRange 已在文件前面定义 (带 min/max 校验)，此处不重复定义
 
-    // =============================================
-    // === L-105: 手部延时控制 ===
-    function setLeftHand(down) {
-        if (down) {
-            if (!leftHandDown) console.log('[Hand] leftHand: down');
-            leftHandDown = true; leftHandPendingRelease = false;
-        }
-        else {
-            if (leftHandDown) console.log('[Hand] leftHand: up (pending release)');
-            leftHandPendingRelease = true; leftHandReleaseTime = performance.now();
+    // === 按键按下/释放 (带 keyup 丢失兜底) ===
+    function armKey(rawName) {
+        var k = normalizeKey(rawName);
+        var old = pressedKeyTimers[k];
+        if (old) clearTimeout(old.timer);
+        var rec = { raw: rawName, timer: null };
+        rec.timer = setTimeout(function () {
+            // 兜底: autoReleaseDelay 内没有收到 keyup (系统键/全屏独占切换等),
+            // 强制视为释放, 避免手和键帽图永久卡住
+            delete pressedKeyTimers[k];
+            clearKeyImage(rawName);
+            clearKeyImage(k);
+        }, autoReleaseDelay);
+        pressedKeyTimers[k] = rec;
+    }
+    function disarmKey(rawName) {
+        var k = normalizeKey(rawName);
+        var rec = pressedKeyTimers[k];
+        if (rec) {
+            clearTimeout(rec.timer);
+            delete pressedKeyTimers[k];
         }
     }
-    function setRightHand(down) {
-        if (down) {
-            if (!rightHandDown) console.log('[Hand] rightHand: down');
-            rightHandDown = true; rightHandPendingRelease = false;
-        }
-        else {
-            if (rightHandDown) console.log('[Hand] rightHand: up (pending release)');
-            rightHandPendingRelease = true; rightHandReleaseTime = performance.now();
-        }
+    function releaseAllKeys() {
+        Object.keys(pressedKeyTimers).forEach(function (k) {
+            clearTimeout(pressedKeyTimers[k].timer);
+            clearKeyImage(pressedKeyTimers[k].raw);
+            clearKeyImage(k);
+            delete pressedKeyTimers[k];
+        });
     }
     function setAutoReleaseDelay(ms) {
         autoReleaseDelay = Math.max(0, ms | 0);
@@ -469,22 +531,20 @@
     // 按键名 -> 图片路径 (由 C++ 通过 Live2DAPI._keyImages 注册)
     function handleKeyDown(keyName) {
         if (!keyName) return;
-        // 兼容 BongoCat DigitX / NumX / KeyX 混用
-        var k = normalizeKey(keyName);
-        if (LEFT_KEYS.has(k)) setLeftHand(true);
-        if (RIGHT_KEYS.has(k)) setRightHand(true);
+        armKey(keyName);
 
         // 显示对应按键图 (同时用原始名、规范化名和方向键别名查找)
+        var k = normalizeKey(keyName);
         var paths = (window.Live2DAPI && window.Live2DAPI._keyImages) || {};
         var url = paths[keyName] || paths[k] || paths[arrowAlias(keyName)] || paths[arrowAlias(k)];
-        if (url) setKeyImage(keyName, url);
+        // 模型自带逐键气泡时 (如星见雅骨架) 跳过 HTML 层, 避免双气泡重影
+        if (url && !modelHasBuiltinKeyArt) setKeyImage(keyName, url);
     }
     function handleKeyUp(keyName) {
         if (!keyName) return;
-        var k = normalizeKey(keyName);
-        if (LEFT_KEYS.has(k)) setLeftHand(false);
-        if (RIGHT_KEYS.has(k)) setRightHand(false);
+        disarmKey(keyName);
         clearKeyImage(keyName);
+        clearKeyImage(normalizeKey(keyName));
     }
 
     // 规范化键名 (BongoCat vs Web DOM Key naming compatibility)
@@ -532,23 +592,20 @@
     function handleMouseDown(button) {
         if (!model) return;
         lastInteractionTime = performance.now();
+        // 手状态每帧由 mouseLeftDown/RightDown 与按键集合统一计算
+        // (BongoCat 行为: 鼠标左键 → 左手, 右键 → 右手)
         if (button === 0) {
             mouseLeftDown = true;
-            // 左键同时驱动左手按下动画 (BongoCat 行为: 鼠标左键 → 左手)
-            setLeftHand(true);
         } else if (button === 2) {
             mouseRightDown = true;
-            setRightHand(true);
         }
     }
     function handleMouseUp(button) {
         if (!model) return;
         if (button === 0) {
             mouseLeftDown = false;
-            setLeftHand(false);
         } else if (button === 2) {
             mouseRightDown = false;
-            setRightHand(false);
         }
     }
 
@@ -565,12 +622,12 @@
         stickShowRight = stickRX !== 0 || stickRY !== 0 || stickRightDown;
     }
     function handleGamepadButtonDown(button) {
-        if (GAMEPAD_LEFT_BUTTONS.has(button)) { setLeftHand(true); stickLeftDown = true; stickShowLeft = true; }
-        if (GAMEPAD_RIGHT_BUTTONS.has(button)) { setRightHand(true); stickRightDown = true; stickShowRight = true; }
+        if (GAMEPAD_LEFT_BUTTONS.has(button)) { stickLeftDown = true; stickShowLeft = true; }
+        if (GAMEPAD_RIGHT_BUTTONS.has(button)) { stickRightDown = true; stickShowRight = true; }
     }
     function handleGamepadButtonUp(button) {
-        if (GAMEPAD_LEFT_BUTTONS.has(button)) { setLeftHand(false); stickLeftDown = false; }
-        if (GAMEPAD_RIGHT_BUTTONS.has(button)) { setRightHand(false); stickRightDown = false; }
+        if (GAMEPAD_LEFT_BUTTONS.has(button)) { stickLeftDown = false; }
+        if (GAMEPAD_RIGHT_BUTTONS.has(button)) { stickRightDown = false; }
         stickShowLeft = (stickLX !== 0 || stickLY !== 0 || stickLeftDown);
         stickShowRight = (stickRX !== 0 || stickRY !== 0 || stickRightDown);
     }
@@ -658,11 +715,23 @@
     // =============================================
     // === 主更新循环 (requestAnimationFrame) ===
     var updateLoopCount = 0;
+    // L-?: 最大帧率限制 (0 = 不限); 由 C++ Live2DWidget::setMaxFps 下发
+    var maxFps = 0;
+    var lastFrameTs = 0;
     function updateLoop() {
         if (!model) {
             if (updateLoopCount < 3) { console.log('[updateLoop] waiting for model...'); updateLoopCount++; }
             requestAnimationFrame(updateLoop);
             return;
+        }
+        // 帧率节流: 未到帧间隔直接安排下一轮, 跳过本次模型更新与渲染
+        if (maxFps > 0) {
+            var nowTs = performance.now();
+            if (nowTs - lastFrameTs < 1000 / maxFps) {
+                requestAnimationFrame(updateLoop);
+                return;
+            }
+            lastFrameTs = nowTs;
         }
         if (updateLoopCount === 0) {
             console.log('[updateLoop] start, mode=' + currentMode);
@@ -673,15 +742,23 @@
 
         var now = performance.now();
 
-        // === L-105: 延时释放 (键盘/鼠标点击触发的手部状态在 autoReleaseDelay 后自动抬起) ===
-        if (leftHandPendingRelease && now - leftHandReleaseTime >= autoReleaseDelay) {
-            if (leftHandDown) console.log('[Hand] leftHand: auto-release');
-            leftHandDown = false; leftHandPendingRelease = false;
+        // === 每帧从按下中的键集合计算左右手状态与逐键参数 ===
+        // (兜底定时器在 armKey 中管理, keyup 丢失到点会自动把键移出集合)
+        var lhDown = mouseLeftDown || stickLeftDown;
+        var rhDown = mouseRightDown || stickRightDown;
+        // 同手键盘占用标记: 该手有键盘键激活时, 鼠标按压不再把手从键帽拉回鼠标
+        // (真实场景: 左手按着 Alt, 右手握鼠标点击 —— 卡通模型里鼠标与键盘左半
+        //  同由"绿手"负责, 两个输入源同时驱动会导致手在鼠标上、键帽气泡却亮着)
+        var lhKeyActive = false, rhKeyActive = false;
+        var activeKeyParams = {};
+        for (var pk in pressedKeyTimers) {
+            if (LEFT_KEYS.has(pk)) { lhDown = true; lhKeyActive = true; }
+            if (RIGHT_KEYS.has(pk)) { rhDown = true; rhKeyActive = true; }
+            var mappedParam = KEY_TO_PARAM[pk];
+            if (mappedParam) activeKeyParams[mappedParam] = true;
         }
-        if (rightHandPendingRelease && now - rightHandReleaseTime >= autoReleaseDelay) {
-            if (rightHandDown) console.log('[Hand] rightHand: auto-release');
-            rightHandDown = false; rightHandPendingRelease = false;
-        }
+        leftHandDown = lhDown;
+        rightHandDown = rhDown;
 
         // === L-101: 鼠标位置平滑插值 (damping, 帧率无关) ===
         // 参考 BongoCat useDevice.ts: alpha = 1 - 0.75^(deltaMS/(1000/60))
@@ -693,6 +770,19 @@
         var alpha = 1 - Math.pow(0.75, dt / (1000 / 60));
         currentMouseXRatio += (targetMouseXRatio - currentMouseXRatio) * alpha;
         currentMouseYRatio += (targetMouseYRatio - currentMouseYRatio) * alpha;
+        // 内置逐键艺术模型 (星见雅骨架等): 其鼠标垫发光与左手位置由 ParamMouseX/Y
+        // 驱动, 而该骨架的左手常驻鼠标球。键盘激活期间 (真实场景: 左手按住 Alt,
+        // 右手握鼠标点击) 若光标恰在屏幕一侧, 就会出现"鼠标垫发光、手压球, 键帽
+        // 气泡却亮着"的违和画面。故键盘占用期间把设备侧坐标平滑归中 (垫熄灭),
+        // 头/眼仍由上面的 currentMouse*Ratio 独立跟随; 键松开后平滑恢复。
+        var handArtTargetXRatio = currentMouseXRatio;
+        var handArtTargetYRatio = currentMouseYRatio;
+        if (modelHasBuiltinKeyArt && (lhKeyActive || rhKeyActive)) {
+            handArtTargetXRatio = 0.5;
+            handArtTargetYRatio = 0.5;
+        }
+        handArtXRatio += (handArtTargetXRatio - handArtXRatio) * alpha;
+        handArtYRatio += (handArtTargetYRatio - handArtYRatio) * alpha;
         // 合并右摇杆到眼球位置 (手柄模式)
         var eyeRatioX = currentMouseXRatio + stickRX * 0.5;
         var eyeRatioY = currentMouseYRatio + stickRY * 0.5;
@@ -715,8 +805,11 @@
             return dragX * dragY * r.min;
         }
 
-        var vMouseX  = mapAxis('ParamMouseX', currentMouseXRatio);
-        var vMouseY  = mapAxis('ParamMouseY', currentMouseYRatio);
+        // ParamMouseX/Y 在内置逐键艺术模型上同时驱动鼠标垫发光/左手设备位置,
+        // 键盘激活时使用归中后的 handArt*Ratio; 其它模型沿用真实鼠标坐标
+        var mouseRatioForArt = modelHasBuiltinKeyArt;
+        var vMouseX  = mapAxis('ParamMouseX', mouseRatioForArt ? handArtXRatio : currentMouseXRatio);
+        var vMouseY  = mapAxis('ParamMouseY', mouseRatioForArt ? handArtYRatio : currentMouseYRatio);
         var vAngleX  = mapAxis('ParamAngleX', currentMouseXRatio);
         var vAngleY  = mapAxis('ParamAngleY', currentMouseYRatio);
         var vAngleZ  = mapZAxis('ParamAngleZ', currentMouseXRatio, currentMouseYRatio);
@@ -783,8 +876,22 @@
         var mrRange = getParamRange('ParamMouseRightDown');
         safeSetParam('CatParamLeftHandDown', leftHandDown ? (lhRange ? lhRange.max : 1) : (lhRange ? lhRange.min : 0));
         safeSetParam('CatParamRightHandDown', rightHandDown ? (rhRange ? rhRange.max : 1) : (rhRange ? rhRange.min : 0));
-        safeSetParam('ParamMouseLeftDown', mouseLeftDown ? (mlRange ? mlRange.max : 1) : (mlRange ? mlRange.min : 0));
-        safeSetParam('ParamMouseRightDown', mouseRightDown ? (mrRange ? mrRange.max : 1) : (mrRange ? mrRange.min : 0));
+        // 键盘占用同只手时屏蔽鼠标按压: 手留在键帽上而不是被拉回鼠标球
+        var effMouseL = mouseLeftDown && !lhKeyActive;
+        var effMouseR = mouseRightDown && !rhKeyActive;
+        safeSetParam('ParamMouseLeftDown', effMouseL ? (mlRange ? mlRange.max : 1) : (mlRange ? mlRange.min : 0));
+        safeSetParam('ParamMouseRightDown', effMouseR ? (mrRange ? mrRange.max : 1) : (mrRange ? mrRange.min : 0));
+
+        // 逐键参数 (星见雅骨架等改模模型): 激活键位=max, 其余=min。
+        // 官方模型没有这些参数, hasParam 为 false 时整段零开销跳过。
+        for (var kpi = 0; kpi < ALL_HAND_KEY_PARAMS.length; kpi++) {
+            var hpId = ALL_HAND_KEY_PARAMS[kpi];
+            if (!hasParam(hpId)) continue;
+            var hpRange = getParamRange(hpId);
+            safeSetParam(hpId, activeKeyParams[hpId]
+                ? (hpRange ? hpRange.max : 1)
+                : (hpRange ? hpRange.min : 0));
+        }
 
         // L-104: 手柄专有参数 (gamepad 模式)
         safeSetParam('CatParamStickLX', stickLX);
@@ -921,6 +1028,10 @@
         handleGamepadButtonUp: handleGamepadButtonUp,
         resetParameters: resetParameters,
         setAutoReleaseDelay: setAutoReleaseDelay,
+        setMaxFps: function (fps) {
+            maxFps = (fps && fps > 0) ? fps : 0;
+            lastFrameTs = 0;
+        },
         setBackground: setBackground,
         setKeyImage: function(keyName, url) {
             // 兼容旧 API: 立即显示按键图 (不推荐)

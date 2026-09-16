@@ -61,6 +61,9 @@ public:
     // L-105: 设置自动释放延迟 (毫秒)
     void setAutoReleaseDelay(int ms);
 
+    // 最大渲染帧率 (0 = 不限, 建议 1-240)
+    void setMaxFps(int fps);
+
     // === 背景和按键图 (与 BongoCat 官方渲染层次一致) ===
     void setBackgroundImage(const QString &path);
     void setKeyImage(const QString &keyName, const QString &path);
@@ -69,6 +72,10 @@ public:
 
     // JavaScript是否就绪
     bool isReady() const { return m_ready; }
+
+    // 水平镜像 (翻转背景/Live2D/按键三个图层)
+    void setMirrored(bool on);
+    bool isMirrored() const { return m_mirrored; }
 
 signals:
     void modelLoaded(int width, int height);
@@ -89,6 +96,7 @@ private:
     void loadCombinedHtml();
     void handleJsEvent(const QString &eventName, const QJsonObject &data);
     void setReady(bool ready);
+    void applyMirror();
 
 #if defined(USE_QT_WEBENGINE)
     QWebEngineView *m_webView = nullptr;
@@ -98,6 +106,8 @@ private:
 #endif
 
     bool m_ready = false;
+    bool m_mirrored = false;
+    int  m_maxFps = 0;       // 0 = 不限
     QString m_currentModelPath;
 };
 

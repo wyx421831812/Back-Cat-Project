@@ -1,0 +1,6 @@
+D:/WorkspaceHome/back_pet/code/desktop/build-msvc-rel/CMakeFiles/BackPet.dir
+D:/WorkspaceHome/back_pet/code/desktop/build-msvc-rel/CMakeFiles/BackPet_qmlimportscan.dir
+D:/WorkspaceHome/back_pet/code/desktop/build-msvc-rel/CMakeFiles/edit_cache.dir
+D:/WorkspaceHome/back_pet/code/desktop/build-msvc-rel/CMakeFiles/rebuild_cache.dir
+D:/WorkspaceHome/back_pet/code/desktop/build-msvc-rel/CMakeFiles/BackPet_autogen_timestamp_deps.dir
+D:/WorkspaceHome/back_pet/code/desktop/build-msvc-rel/CMakeFiles/BackPet_autogen.dir

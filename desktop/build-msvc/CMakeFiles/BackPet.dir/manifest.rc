@@ -1,0 +1,2 @@
+#pragma code_page(65001)
+1 /* CREATEPROCESS_MANIFEST_RESOURCE_ID */ 24 /* RT_MANIFEST */ "D:/WorkspaceHome/back_pet/code/desktop/build-msvc/CMakeFiles/BackPet.dir/embed.manifest"
