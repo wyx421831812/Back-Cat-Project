@@ -2,10 +2,12 @@
 #include "localfileserver.h"
 #include <QVBoxLayout>
 #include <QFile>
+#include <QFileInfo>
 #include <QCoreApplication>
 #include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #if defined(USE_QT_WEBENGINE)
 #include <QWebEngineSettings>
 #include <QWebEnginePage>
@@ -347,6 +349,54 @@ bool Live2DWidget::loadModel(const QString &modelPath)
 
     QString urlPath = LocalFileServer::instance()->toUrl(modelPath);
 
+    // === 数据驱动: 下发模型 cdi3.json 参数元数据 ===
+    // 社区改模的逐键参数 Id 千差万别 (Q1/D1/Param100...), 但其 cdi3 显示名统一
+    // 就是键帽名 (D/d/1/Ctrl/空格...); JS 按显示名自动建立"按键->参数"映射,
+    // 新增任何同规范的 Live2D 模型都无需再改代码。无 cdi3 时下发空表,
+    // JS 回退到历史命名兜底 (切换模型时同时起到清空旧模型元数据的作用)。
+    {
+        QJsonArray meta;
+        QString cdiFileName;
+        const bool isLocalPath =
+            !modelPath.startsWith(QLatin1String("qrc:")) &&
+            !modelPath.startsWith(QLatin1Char(':')) &&
+            !modelPath.startsWith(QLatin1String("http://")) &&
+            !modelPath.startsWith(QLatin1String("https://"));
+        if (isLocalPath) {
+            const QDir modelDir(QFileInfo(modelPath).absolutePath());
+            const auto cdiFiles = modelDir.entryInfoList(
+                QStringList() << QStringLiteral("*.cdi3.json"),
+                QDir::Files | QDir::Readable, QDir::Name);
+            if (!cdiFiles.isEmpty()) {
+                QFile cdiFile(cdiFiles.first().absoluteFilePath());
+                if (cdiFile.open(QIODevice::ReadOnly)) {
+                    const QJsonDocument cdiDoc =
+                        QJsonDocument::fromJson(cdiFile.readAll());
+                    const QJsonArray params =
+                        cdiDoc.object().value(QStringLiteral("Parameters")).toArray();
+                    for (const QJsonValue &v : params) {
+                        const QJsonObject p = v.toObject();
+                        QJsonObject o;
+                        o.insert(QStringLiteral("id"),   p.value(QStringLiteral("Id")));
+                        o.insert(QStringLiteral("name"), p.value(QStringLiteral("Name")));
+                        o.insert(QStringLiteral("min"),  p.value(QStringLiteral("Min")));
+                        o.insert(QStringLiteral("max"),  p.value(QStringLiteral("Max")));
+                        o.insert(QStringLiteral("dflt"), p.value(QStringLiteral("Default")));
+                        meta.append(o);
+                    }
+                    cdiFileName = cdiFiles.first().fileName();
+                }
+            }
+        }
+        const QString metaJson =
+            QString::fromUtf8(QJsonDocument(meta).toJson(QJsonDocument::Compact));
+        runJavaScript(QStringLiteral(
+            "if(window.Live2DAPI){window.Live2DAPI.setModelParamMeta(%1);}")
+            .arg(metaJson.isEmpty() ? QStringLiteral("[]") : metaJson));
+        qDebug() << "Live2D: pushed" << meta.size()
+                 << "cdi3 params" << (cdiFileName.isEmpty() ? QStringLiteral("(no cdi3)") : cdiFileName);
+    }
+
     QString jsCode = QString(
         "if(window.Live2DAPI) {"
         "    window.Live2DAPI.loadModel('%1');"
@@ -553,19 +603,26 @@ void Live2DWidget::setBackgroundImage(const QString &path)
     runJavaScript(jsCode);
 }
 
-void Live2DWidget::setKeyImage(const QString &keyName, const QString &path)
+void Live2DWidget::setKeyImage(const QString &keyName, const QString &path, const QString &hand)
 {
     if (!m_ready || keyName.isEmpty()) return;
     QString url = toFileUrl(path);
+    // 键名仅允许常规字符, 安全拼进 JS 字符串
+    const QString key = QString(keyName).replace("'", "\\'");
+    const QString handJs = (hand == QLatin1String("left") || hand == QLatin1String("right"))
+                               ? QString("window.Live2DAPI._keyHands['%1']='%2';").arg(key, hand)
+                               : QString();
     QString jsCode;
     if (url.isEmpty()) {
         jsCode = QString(
-            "if(window.Live2DAPI) { delete window.Live2DAPI._keyImages['%1']; }"
-        ).arg(keyName);
+            "if(window.Live2DAPI) { delete window.Live2DAPI._keyImages['%1'];"
+            " delete window.Live2DAPI._keyHands['%1']; }"
+        ).arg(key);
     } else {
         jsCode = QString(
-            "if(window.Live2DAPI) { window.Live2DAPI._keyImages['%1'] = '%2'; }"
-        ).arg(keyName).arg(url.replace("'", "\\'"));
+            "if(window.Live2DAPI) { window.Live2DAPI._keyImages['%1'] = '%2';"
+            " %3 }"
+        ).arg(key, url.replace("'", "\\'"), handJs);
     }
     runJavaScript(jsCode);
 }
@@ -582,7 +639,8 @@ void Live2DWidget::clearKeyImage(const QString &keyName)
 void Live2DWidget::clearAllKeyImages()
 {
     if (!m_ready) return;
-    runJavaScript("if(window.Live2DAPI) { window.Live2DAPI._keyImages = {}; }");
+    runJavaScript("if(window.Live2DAPI) { window.Live2DAPI._keyImages = {};"
+                  " window.Live2DAPI._keyHands = {}; }");
 }
 
 void Live2DWidget::runJavaScript(const QString &code)

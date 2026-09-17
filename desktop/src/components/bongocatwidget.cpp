@@ -362,12 +362,16 @@ void BongoCatWidget::pushImagesToLive2D()
             QString dirPath = modelDir + "/resources/" + sd;
             QDir dir(dirPath);
             if (!dir.exists()) continue;
+            // 与官方 BongoCat 一致: 手别由模型资源目录名决定
+            QString hand;
+            if (sd == QLatin1String("left-keys")) hand = QStringLiteral("left");
+            else if (sd == QLatin1String("right-keys")) hand = QStringLiteral("right");
             QStringList filters;
             filters << "*.png" << "*.jpg" << "*.jpeg";
             const auto files = dir.entryInfoList(filters, QDir::Files);
             for (const QFileInfo &fi : files) {
                 QString keyName = fi.baseName();
-                m_live2dWidget->setKeyImage(keyName, fi.absoluteFilePath());
+                m_live2dWidget->setKeyImage(keyName, fi.absoluteFilePath(), hand);
             }
         }
     } else {
@@ -386,7 +390,10 @@ void BongoCatWidget::pushImagesToLive2D()
             for (const QString &sd : {"left-keys", "right-keys"}) {
                 QString p = modelDir + "/resources/" + sd + "/" + key + ".png";
                 if (QFile::exists(p)) {
-                    m_live2dWidget->setKeyImage(key, p);
+                    // 与官方 BongoCat 一致: 手别由模型资源目录名决定
+                    QString hand = (sd == QLatin1String("left-keys"))
+                                       ? QStringLiteral("left") : QStringLiteral("right");
+                    m_live2dWidget->setKeyImage(key, p, hand);
                     break;
                 }
             }

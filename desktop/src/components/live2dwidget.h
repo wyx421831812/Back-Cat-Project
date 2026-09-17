@@ -65,8 +65,10 @@ public:
     void setMaxFps(int fps);
 
     // === 背景和按键图 (与 BongoCat 官方渲染层次一致) ===
+    // hand: 键帽所属手别 "left"/"right" (来自模型 resources/left-keys|right-keys 目录),
+    // 与官方 BongoCat 一致用于驱动 CatParamLeft/RightHandDown; 空串=不指定
     void setBackgroundImage(const QString &path);
-    void setKeyImage(const QString &keyName, const QString &path);
+    void setKeyImage(const QString &keyName, const QString &path, const QString &hand = QString());
     void clearKeyImage(const QString &keyName);
     void clearAllKeyImages();
 

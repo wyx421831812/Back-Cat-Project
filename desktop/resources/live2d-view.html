@@ -81,6 +81,11 @@
     // 模型是否自带逐键键帽气泡 ArtMesh (星见雅骨架等改模):
     // 探测到任意逐键参数时, HTML 层不再叠加键帽图, 避免与模型内置气泡重影
     let modelHasBuiltinKeyArt = false;
+    // cdi3 参数元数据: C++ 从模型同目录 *.cdi3.json 读取并下发,
+    // 数据驱动地建立"按键规范名 -> 模型参数 Id"映射, 新模型零代码改动
+    let modelParamMeta = [];
+    let modelKeyToParam = {};   // 'KeyD' / 'Digit1' / 'Control' ... -> 参数 Id
+    let modelKeyParamIds = [];  // 当前模型的全部逐键参数 Id (每帧把未激活的归 min)
 
     // === L-101: 鼠标位置 (屏幕归一化坐标 0~1, 由 C++ 端从 [-1,1] 转换) ===
     // 参考 BongoCat useModel.ts handleMouseMove:
@@ -93,6 +98,11 @@
     // 位置) 的等效坐标, 与驱动头眼的 currentMouse*Ratio 分离, 可单独归中
     let handArtXRatio = 0.5;
     let handArtYRatio = 0.5;
+    // 模型是否提供独立的鼠标按下参数。YuHen 等改模骨架实测: LHD 与 MLD 同时为 1
+    // 时手部形变会叠加成"抬手悬空"的怪姿态, 故鼠标按下只能走 MLD;
+    // 仅当模型缺少 MLD/MRD 时才回退用 LHD/RHD 表达按压 (老式模型兼容)
+    let modelHasMouseLParam = true;
+    let modelHasMouseRParam = true;
 
     // === L-104: 手柄 (摇杆参数 + 按键参数) ===
     let stickLX = 0, stickLY = 0, stickRX = 0, stickRY = 0;
@@ -218,29 +228,130 @@
     // 右手按键: B(1)/Y(3)/RB(5)/RT(7)/D-Right(15)/Start(9)
     const GAMEPAD_RIGHT_BUTTONS = new Set([1, 3, 5, 7, 8, 9, 15]);
 
+    // 判断按键归属哪只手 (与官方 BongoCat main/index.vue watch(pressedKeys) 等价):
+    // 1) 优先用模型资源注册表 _keyHands (C++ 按 resources/left-keys|right-keys 目录下发),
+    //    不同模型键集合不同, 以模型自带资源为权威来源 -> 新模型无需逐个人肉测试
+    // 2) 注册表查不到时回退物理键位分区 (LEFT_KEYS/RIGHT_KEYS)
+    // 返回 'left' | 'right' | null
+    function classifyKey(rawKey) {
+        var hands = (window.Live2DAPI && window.Live2DAPI._keyHands) || {};
+        var nk = normalizeKey(rawKey);
+        // normalizeKey 的逆映射: 内部规范名 -> 模型资源文件名 (C++ 按资源名注册)
+        var reverseMap = {
+            'Digit0': 'Num0', 'Digit1': 'Num1', 'Digit2': 'Num2', 'Digit3': 'Num3',
+            'Digit4': 'Num4', 'Digit5': 'Num5', 'Digit6': 'Num6', 'Digit7': 'Num7',
+            'Digit8': 'Num8', 'Digit9': 'Num9',
+            'Enter': 'Return'
+        };
+        var candidates = [rawKey, nk, reverseMap[nk], reverseMap[rawKey],
+                          arrowAlias(rawKey), arrowAlias(nk)];
+        for (var i = 0; i < candidates.length; i++) {
+            var c = candidates[i];
+            if (c && hands[c] === 'left') return 'left';
+            if (c && hands[c] === 'right') return 'right';
+        }
+        if (LEFT_KEYS.has(rawKey) || LEFT_KEYS.has(nk)) return 'left';
+        if (RIGHT_KEYS.has(rawKey) || RIGHT_KEYS.has(nk)) return 'right';
+        return null;
+    }
+
     // ==================================================
-    // === 社区改模模型的逐键参数 (星见雅骨架等) ===
+    // === 逐键参数映射 (数据驱动, 自动适配任意社区改模) ===
     // 官方标准模型只有 CatParamLeftHandDown (手只做"按下"动作, 不移动位置);
-    // 社区"星见雅骨架"模型额外提供逐键参数: 参数=1 时左手滑到对应键帽,
-    // 全部=0 时左手回到待机位。键名为 normalizeKey 之后的规范名。
-    // 注: 模型参数 F1 的名字是 "F" (字母F); 数字行参数为 F0,F2..F5 (1,3,4,5,6),
-    //     数字 2 无独立参数, 就近映射 F0。
-    const KEY_TO_PARAM = {
-        'KeyQ': 'Q1', 'KeyW': 'W1', 'KeyE': 'E1', 'KeyR': 'R1', 'KeyT': 'T1',
-        'KeyA': 'A1', 'KeyS': 'S1', 'KeyD': 'D1', 'KeyF': 'F1', 'KeyG': 'G1',
-        'KeyZ': 'Z1', 'KeyX': 'X1', 'KeyC': 'C1', 'KeyV': 'V1', 'KeyB': 'B1',
-        'Digit1': 'F0', 'Digit2': 'F0', 'Digit3': 'F2', 'Digit4': 'F3',
-        'Digit5': 'F4', 'Digit6': 'F5',
-        'Enter': 'Enter1',
-        'Control': 'Ctrl', 'Shift': 'Shift', 'Alt': 'Alt',
-        'Space': 'Space'
+    // 社区改模模型额外提供逐键参数: 参数=max 时手滑到对应键帽并弹出内置气泡,
+    // 全部=min 时手回到待机位。各改模的参数 Id 千差万别
+    // (Q1/D1/F0... 旧骨架, Param85..Param107 新骨架, 以及未来任意命名),
+    // 但其 cdi3.json 显示名统一就是键帽名 (D / d / 1 / Ctrl / 空格 ...)。
+    // C++ 加载模型时读取同目录 *.cdi3.json, 经 setModelParamMeta 下发,
+    // rebuildKeyParamMap() 按显示名自动识别 —— 新增模型无需再改代码。
+    // 仅当模型缺少 cdi3 元数据时, 才回退到下面的历史命名兜底表。
+    const FALLBACK_KEY_TO_PARAM = {
+        'KeyQ': ['Q1', 'Param107'], 'KeyW': ['W1', 'Param106'],
+        'KeyE': ['E1', 'Param105'], 'KeyR': ['R1', 'Param104'], 'KeyT': ['T1', 'Param103'],
+        'KeyA': ['A1', 'Param102'], 'KeyS': ['S1', 'Param101'],
+        'KeyD': ['D1', 'Param100'], 'KeyF': ['F1', 'Param99'], 'KeyG': ['G1', 'Param98'],
+        'KeyZ': ['Z1', 'Param96'], 'KeyX': ['X1', 'Param95'],
+        'KeyC': ['C1', 'Param94'], 'KeyV': ['V1', 'Param93'], 'KeyB': ['B1', 'Param92'],
+        'Digit1': ['F0'], 'Digit3': ['F2'], 'Digit4': ['F3'],
+        'Digit5': ['F4'], 'Digit6': ['F5'],
+        'Enter': ['Enter1', 'Param97'],
+        'Control': ['Ctrl', 'Param87'], 'Shift': ['Shift', 'Param88'],
+        'Alt': ['Alt', 'Param86'],
+        'Space': ['Space', 'Param85']
     };
-    // 该模型全部左手键位参数 (每帧把未激活的归 0, 防止残留)
-    const ALL_HAND_KEY_PARAMS = [
-        'Q1', 'W1', 'E1', 'R1', 'T1', 'A1', 'S1', 'D1', 'F1', 'G1',
-        'Z1', 'X1', 'C1', 'V1', 'B1', 'F0', 'F2', 'F3', 'F4', 'F5',
-        'Enter1', 'Ctrl', 'Shift', 'Alt', 'Space'
-    ];
+
+    // 特殊键显示名 -> 键盘规范名 (cdi3 Name 可能是中英文)
+    const SPECIAL_KEY_LABELS = {
+        'space': 'Space', 'spacebar': 'Space', '空格': 'Space',
+        'ctrl': 'Control', 'control': 'Control', '控制': 'Control', '控制键': 'Control',
+        'alt': 'Alt', 'option': 'Alt', '换挡': 'Alt',
+        'shift': 'Shift', '上档': 'Shift',
+        'enter': 'Enter', 'return': 'Enter', '回车': 'Enter'
+    };
+
+    // 标签文本归一化: 去空白/零宽字符并转小写
+    function normalizeKeyLabelText(raw) {
+        return String(raw == null ? '' : raw)
+            .replace(/[\s\u200b-\u200f\ufeff]/g, "")
+            .toLowerCase();
+    }
+
+    // 把 cdi3 参数的显示名 (Name) 或参数 Id 识别为键盘规范名。
+    // isId=true 时使用更保守的规则 (Id 只是机器名, 陷阱多):
+    //   旧骨架数字行参数是 F0..F5 (名字却是 1..6), 绝不能按字母 F 误判,
+    //   故 Id 路径只接受 "字母" 或 "字母+尾号1" (Q1/D1/F1), 拒绝 F0/F2..F5。
+    // 非按键装饰参数 (如 "捏脸手出现"/"关闭气泡") 返回 null 自然排除。
+    function labelToCanonicalKey(raw, isId) {
+        var t = normalizeKeyLabelText(raw);
+        if (!t) return null;
+        if (/^[a-z]$/.test(t)) return 'Key' + t.toUpperCase();
+        if (/^[0-9]$/.test(t)) return 'Digit' + t;
+        if (SPECIAL_KEY_LABELS[t]) return SPECIAL_KEY_LABELS[t];
+        if (isId) {
+            if (/^[a-egh-z]1?$/.test(t)) return 'Key' + t.charAt(0).toUpperCase();
+            if (t === 'f1') return 'KeyF';
+            if (/^(enter|return|ctrl|control|shift|alt|space)1?$/.test(t)) {
+                return SPECIAL_KEY_LABELS[t.replace(/1$/, '')] || null;
+            }
+        }
+        return null;
+    }
+
+    // 根据 cdi3 元数据 (或兜底表) 重建当前模型的按键->参数映射。
+    // 在每次模型加载完成 (resetParameters) 时调用。
+    function rebuildKeyParamMap() {
+        modelKeyToParam = {};
+        modelKeyParamIds = [];
+        var usedIds = {};
+        function put(key, id) {
+            if (!key || !id || usedIds[id]) return;
+            if (!modelKeyToParam[key]) modelKeyToParam[key] = id;
+            usedIds[id] = true;
+            modelKeyParamIds.push(id);
+        }
+        if (modelParamMeta && modelParamMeta.length) {
+            // 第一轮: 按 cdi3 显示名识别 (最可靠, 覆盖 D/d/1/空格/Ctrl...)
+            modelParamMeta.forEach(function (p) {
+                put(labelToCanonicalKey(p.name, false), p.id);
+            });
+            // 第二轮: 显示名缺失时用参数 Id 保守兜底, 且不覆盖已有映射
+            modelParamMeta.forEach(function (p) {
+                var key = labelToCanonicalKey(p.id, true);
+                if (key && !modelKeyToParam[key]) put(key, p.id);
+            });
+        } else if (model) {
+            // 无 cdi3 元数据: 用历史命名兜底, 只保留模型实际存在的参数
+            for (var fk in FALLBACK_KEY_TO_PARAM) {
+                var cands = FALLBACK_KEY_TO_PARAM[fk];
+                for (var ci = 0; ci < cands.length; ci++) {
+                    if (hasParam(cands[ci])) { put(fk, cands[ci]); break; }
+                }
+            }
+        }
+        modelHasBuiltinKeyArt = modelKeyParamIds.length > 0;
+        console.log('[Live2D] key-param mapping rebuilt: ' + modelKeyParamIds.length +
+                    ' key params, meta=' + ((modelParamMeta && modelParamMeta.length) || 0));
+    }
 
     // === 初始化入口 (依赖 CDN/local 加载完毕后由 onload 回调触发) ===
     function initLive2dCore() {
@@ -396,13 +507,13 @@
         if (!model) return;
         // 重置参数存在性缓存 (换模型后参数集合可能变化)
         Object.keys(paramExists).forEach(function(k) { delete paramExists[k]; });
-        // 探测模型是否自带逐键键帽气泡 (此时新模型 coreModel 已就绪):
+        // 数据驱动识别逐键参数: 按 C++ 下发的 cdi3 元数据建立键->参数映射,
         // 存在任意逐键参数即视为骨架自带气泡, HTML 层键帽图让位
-        modelHasBuiltinKeyArt = false;
-        for (var bki = 0; bki < ALL_HAND_KEY_PARAMS.length; bki++) {
-            if (hasParam(ALL_HAND_KEY_PARAMS[bki])) { modelHasBuiltinKeyArt = true; break; }
-        }
-        console.log('[Live2D] model builtin key-art bubble:', modelHasBuiltinKeyArt);
+        rebuildKeyParamMap();
+        modelHasMouseLParam = hasParam('ParamMouseLeftDown');
+        modelHasMouseRParam = hasParam('ParamMouseRightDown');
+        console.log('[Live2D] model builtin key-art bubble:', modelHasBuiltinKeyArt,
+                    ', mouseDown params: L=' + modelHasMouseLParam, 'R=' + modelHasMouseRParam);
 
         // L-101: 鼠标位置回到中心
         targetMouseXRatio = currentMouseXRatio = 0.5;
@@ -441,9 +552,9 @@
             'CatParamStickShowLeftHand', 'CatParamStickShowRightHand',
             'CatParamStickLeftDown', 'CatParamStickRightDown'
         ];
-        // 逐键参数 (星见雅骨架等) 一并归零, 防止换模型/复位后手停在某个键位
-        for (var rpi = 0; rpi < ALL_HAND_KEY_PARAMS.length; rpi++) {
-            params.push(ALL_HAND_KEY_PARAMS[rpi]);
+        // 逐键参数 (cdi3 自动发现) 一并归零, 防止换模型/复位后手停在某个键位
+        for (var rpi = 0; rpi < modelKeyParamIds.length; rpi++) {
+            params.push(modelKeyParamIds[rpi]);
         }
         for (var i = 0; i < params.length; i++) {
             try { model.internalModel.coreModel.setParameterValueById(params[i], 0); } catch (e) {}
@@ -744,19 +855,35 @@
 
         // === 每帧从按下中的键集合计算左右手状态与逐键参数 ===
         // (兜底定时器在 armKey 中管理, keyup 丢失到点会自动把键移出集合)
-        var lhDown = mouseLeftDown || stickLeftDown;
-        var rhDown = mouseRightDown || stickRightDown;
+        //
+        // 与官方 BongoCat (main/index.vue + useGamepad.ts) 完全一致的映射:
+        //   CatParamLeftHandDown  = 左手键帽按下 || 左摇杆移动/按下
+        //   CatParamRightHandDown = 右手键帽按下 || 右摇杆移动/按下
+        //   ParamMouseLeftDown/RightDown 只由物理鼠标驱动, 绝不并入手参数
+        // 实测 YuHen 骨架 (星见雅/菲比等) 上 LHD=1 且 MLD=1 会让手部形变叠加成
+        // "抬手悬空/卡没"的怪姿态。模型缺少鼠标按下参数时才回退用手参数表达。
+        // 键帽左右手归属以模型资源注册表 _keyHands 为准 (classifyKey)。
+        var lhDown = false;
+        var rhDown = false;
         // 同手键盘占用标记: 该手有键盘键激活时, 鼠标按压不再把手从键帽拉回鼠标
         // (真实场景: 左手按着 Alt, 右手握鼠标点击 —— 卡通模型里鼠标与键盘左半
-        //  同由"绿手"负责, 两个输入源同时驱动会导致手在鼠标上、键帽气泡却亮着)
+        //  同由一只手负责, 两个输入源同时驱动会导致手在鼠标上、键帽气泡却亮着)
         var lhKeyActive = false, rhKeyActive = false;
         var activeKeyParams = {};
         for (var pk in pressedKeyTimers) {
-            if (LEFT_KEYS.has(pk)) { lhDown = true; lhKeyActive = true; }
-            if (RIGHT_KEYS.has(pk)) { rhDown = true; rhKeyActive = true; }
-            var mappedParam = KEY_TO_PARAM[pk];
-            if (mappedParam) activeKeyParams[mappedParam] = true;
+            var pkHand = classifyKey(pk);
+            if (pkHand === 'left') { lhDown = true; lhKeyActive = true; }
+            else if (pkHand === 'right') { rhDown = true; rhKeyActive = true; }
+            // 数据驱动映射: 规范键 -> 当前模型的逐键参数 Id (cdi3 自动发现)
+            var mappedKeyParam = modelKeyToParam[pk];
+            if (mappedKeyParam) activeKeyParams[mappedKeyParam] = true;
         }
+        // 手柄: 摇杆偏移或同侧按键按下 (官方 stickActive.left/right)
+        if (stickLX !== 0 || stickLY !== 0 || stickLeftDown) lhDown = true;
+        if (stickRX !== 0 || stickRY !== 0 || stickRightDown) rhDown = true;
+        // 老式模型无独立鼠标按下参数时的回退路径
+        if (!modelHasMouseLParam && mouseLeftDown) lhDown = true;
+        if (!modelHasMouseRParam && mouseRightDown) rhDown = true;
         leftHandDown = lhDown;
         rightHandDown = rhDown;
 
@@ -882,10 +1009,10 @@
         safeSetParam('ParamMouseLeftDown', effMouseL ? (mlRange ? mlRange.max : 1) : (mlRange ? mlRange.min : 0));
         safeSetParam('ParamMouseRightDown', effMouseR ? (mrRange ? mrRange.max : 1) : (mrRange ? mrRange.min : 0));
 
-        // 逐键参数 (星见雅骨架等改模模型): 激活键位=max, 其余=min。
-        // 官方模型没有这些参数, hasParam 为 false 时整段零开销跳过。
-        for (var kpi = 0; kpi < ALL_HAND_KEY_PARAMS.length; kpi++) {
-            var hpId = ALL_HAND_KEY_PARAMS[kpi];
+        // 逐键参数 (cdi3 自动发现的模型参数): 激活键位=max, 其余=min。
+        // 官方模型没有这类参数时 modelKeyParamIds 为空, 整段零开销跳过。
+        for (var kpi = 0; kpi < modelKeyParamIds.length; kpi++) {
+            var hpId = modelKeyParamIds[kpi];
             if (!hasParam(hpId)) continue;
             var hpRange = getParamRange(hpId);
             safeSetParam(hpId, activeKeyParams[hpId]
@@ -1013,8 +1140,19 @@
         // 按键图注册表: { "KeyA": "file:///.../KeyA.png", ... }
         // C++ 通过 setKeyImage(keyName, path) 注册，按下时自动显示
         _keyImages: {},
+        // 按键手别注册表: { "KeyA": "left", "KeyL": "right", ... }
+        // C++ 按模型 resources/left-keys|right-keys 目录注册 (与官方 BongoCat 一致),
+        // 是左右手归属的权威数据源; 查不到的键回退物理键位分区
+        _keyHands: {},
 
         loadModel: loadModel,
+        // C++ 加载模型时下发该模型 cdi3.json 的参数元数据:
+        // [{id, name, min, max, dflt}, ...]; 模型加载完成后据此自动建立键映射。
+        // 传空数组表示模型无 cdi3, 回退历史命名兜底表。
+        setModelParamMeta: function (list) {
+            modelParamMeta = Array.isArray(list) ? list : [];
+            if (model) rebuildKeyParamMap();
+        },
         setParameter: setParameter,
         playMotion: playMotion,
         playExpression: playExpression,
@@ -1033,14 +1171,20 @@
             lastFrameTs = 0;
         },
         setBackground: setBackground,
-        setKeyImage: function(keyName, url) {
-            // 兼容旧 API: 立即显示按键图 (不推荐)
-            if (url) { this._keyImages[keyName] = url; setKeyImage(keyName, url); }
-            else { delete this._keyImages[keyName]; clearKeyImage(keyName); }
+        setKeyImage: function(keyName, url, hand) {
+            // 兼容旧 API: 立即显示按键图 (不推荐); hand='left'|'right' 注册手别
+            if (url) {
+                this._keyImages[keyName] = url; setKeyImage(keyName, url);
+                if (hand === 'left' || hand === 'right') this._keyHands[keyName] = hand;
+            } else {
+                delete this._keyImages[keyName]; delete this._keyHands[keyName];
+                clearKeyImage(keyName);
+            }
         },
         clearKeyImage: clearKeyImage,
         clearAllKeyImages: function() {
             this._keyImages = {};
+            this._keyHands = {};
             clearAllKeyImages();
         },
         getParameterRange: getParameterRange,
