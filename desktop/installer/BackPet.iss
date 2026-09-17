@@ -1,4 +1,4 @@
-﻿﻿; =============================================
+﻿; =============================================
 ; === BackPet 桌面宠物 安装程序脚本 ===
 ; 使用 Inno Setup 6 编译:
 ;   ISCC.exe BackPet.iss
@@ -8,7 +8,7 @@
 ; =============================================
 
 #define MyAppName "BackPet"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.1"
 #define MyAppPublisher "BackCat Project"
 #define MyAppURL "https://github.com/ayangweb/BongoCat"
 #define MyAppExeName "BackPet.exe"
@@ -29,7 +29,7 @@ AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 AppCopyright=Copyright (C) 2026 {#MyAppPublisher}
-VersionInfoVersion=0.1.0.0
+VersionInfoVersion=0.1.1.0
 VersionInfoCompany={#MyAppPublisher}
 
 ; 安装位置与分组
